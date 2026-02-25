@@ -33,6 +33,14 @@ const unsubscribeSchema = z.object({
   checkoutToken: z.string().min(1)
 });
 
+app.get("/", (_req, res) => {
+  return res.status(200).json({ ok: true, service: "failed-payment-recovery" });
+});
+
+app.get("/health", (_req, res) => {
+  return res.status(200).json({ ok: true });
+});
+
 function buildInstallUrl(shop: string, baseUrl: string): string {
   const state = crypto.randomBytes(16).toString("hex");
   issuedOAuthStates.set(state, Date.now());
