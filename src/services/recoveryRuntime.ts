@@ -1,0 +1,51 @@
+import type { CheckoutSignal } from "../domain/types";
+import { inferLikelyFailedPayment } from "../domain/recoveryEngine";
+import type { Notifier } from "./notifier";
+import type { RecoveryStore } from "./recoveryStore";
+import { processRecoveryAttempt } from "../workers/recoveryWorker";
+
+export class RecoveryRuntime {
+  constructor(
+    private readonly store: RecoveryStore,
+    private readonly notifier: Notifier
+  ) {}
+
+  ingestSignal(signal: CheckoutSignal, nowIso: string): void {
+    const failed = inferLikelyFailedPayment(signal, nowIso);
+    if (!failed) return;
+
+    this.store.upsertFailedSession({
+      checkoutToken: signal.checkoutToken,
+      shopDomain: signal.shopDomain,
+      email: signal.email,
+      phone: signal.phone,
+      failedAt: nowIso
+    });
+  }
+
+  markCheckoutRecovered(checkoutToken: string, orderId: string): void {
+    this.store.markRecovered(checkoutToken, orderId);
+  }
+
+  unsubscribe(checkoutToken: string): void {
+    this.store.markUnsubscribed(checkoutToken);
+  }
+
+  async runDue(nowIso: string): Promise<number> {
+    const due = this.store.listDue(nowIso);
+
+    for (const session of due) {
+      const updated = await processRecoveryAttempt(session, nowIso, {
+        sendEmail: (s) => this.notifier.sendEmail(s),
+        sendSms: (s) => this.notifier.sendSms(s)
+      });
+      this.store.update(updated);
+    }
+
+    return due.length;
+  }
+
+  metrics() {
+    return this.store.summary();
+  }
+}
