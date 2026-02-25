@@ -18,6 +18,7 @@ function canonicalQuery(params: URLSearchParams): string {
 }
 
 export function verifyOAuthHmac(search: URLSearchParams): boolean {
+  if (!env.SHOPIFY_API_SECRET) return false;
   const hmac = search.get("hmac");
   if (!hmac) return false;
 
@@ -32,6 +33,9 @@ export function verifyOAuthHmac(search: URLSearchParams): boolean {
 }
 
 export async function exchangeCodeForToken(shop: string, code: string): Promise<ExchangeResponse> {
+  if (!env.SHOPIFY_API_KEY || !env.SHOPIFY_API_SECRET) {
+    throw new Error("Missing SHOPIFY API credentials");
+  }
   const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

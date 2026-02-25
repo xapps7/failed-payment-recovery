@@ -42,6 +42,9 @@ app.get("/health", (_req, res) => {
 });
 
 function buildInstallUrl(shop: string, baseUrl: string): string {
+  if (!env.SHOPIFY_API_KEY || !env.SHOPIFY_SCOPES) {
+    throw new Error("Missing SHOPIFY_API_KEY or SHOPIFY_SCOPES");
+  }
   const state = crypto.randomBytes(16).toString("hex");
   issuedOAuthStates.set(state, Date.now());
   const redirectUri = `${baseUrl}/auth/callback`;
@@ -62,7 +65,11 @@ app.get("/auth/start", (req, res) => {
   const protocol = req.get("x-forwarded-proto") || req.protocol;
   const host = req.get("host");
   const baseUrl = host ? `${protocol}://${host}` : appBaseUrl();
-  return res.status(200).json({ installUrl: buildInstallUrl(shop, baseUrl) });
+  try {
+    return res.status(200).json({ installUrl: buildInstallUrl(shop, baseUrl) });
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
 });
 
 app.get("/auth/callback", (req, res) => {
@@ -76,6 +83,9 @@ app.get("/auth/callback", (req, res) => {
   const url = new URL(req.originalUrl, appBaseUrl());
   if (!verifyOAuthHmac(url.searchParams)) {
     return res.status(401).send("Invalid OAuth signature");
+  }
+  if (!env.SHOPIFY_API_KEY || !env.SHOPIFY_API_SECRET) {
+    return res.status(500).send("Missing SHOPIFY API credentials");
   }
   const issuedAt = issuedOAuthStates.get(state);
   if (!issuedAt) {
