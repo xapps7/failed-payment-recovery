@@ -25,3 +25,5 @@
 - Added `/dashboard`, `/settings`, and `/recover/:token` endpoints.
 - Rebuilt the admin UI into a live operational dashboard with editable campaign settings and recent recovery sessions.
 - Added `start` script and static `/app` serving for built frontend assets.
+- Converted app routing toward embedded Shopify admin mode: dynamic app shell injection, CSP frame-ancestors headers, and OAuth redirect back to Shopify admin app entry.
+- Added frontend awareness of embedded context and connected store identity.

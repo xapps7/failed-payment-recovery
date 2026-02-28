@@ -57,7 +57,7 @@ const settingsSchema = z.object({
   retryMinutes: z.array(z.number().int().positive()).min(1).optional()
 });
 
-app.get("/", (_req, res) => {
+app.get("/status", (_req, res) => {
   return res.status(200).json({ ok: true, service: "failed-payment-recovery" });
 });
 
@@ -65,11 +65,46 @@ app.get("/health", (_req, res) => {
   return res.status(200).json({ ok: true });
 });
 
-app.get("/app", (_req, res) => {
+function applyEmbeddedHeaders(req: express.Request, res: express.Response): void {
+  const shop = (req.query.shop as string | undefined) || env.SHOP_DOMAIN;
+  const ancestors = ["https://admin.shopify.com"];
+  if (shop) ancestors.push(`https://${shop}`);
+  res.setHeader("Content-Security-Policy", `frame-ancestors ${ancestors.join(" ")};`);
+}
+
+function renderAppShell(req: express.Request, res: express.Response, embedded = false) {
   if (!fs.existsSync(path.join(distDir, "index.html"))) {
     return res.status(404).send("Frontend build not found. Run npm run build.");
   }
-  return res.sendFile(path.join(distDir, "index.html"));
+
+  applyEmbeddedHeaders(req, res);
+  const html = fs.readFileSync(path.join(distDir, "index.html"), "utf8");
+  const appConfig = {
+    shopifyApiKey: env.SHOPIFY_API_KEY || "",
+    shop: (req.query.shop as string | undefined) || env.SHOP_DOMAIN || "",
+    host: (req.query.host as string | undefined) || "",
+    embedded: embedded || Boolean(req.query.embedded) || Boolean(req.query.host)
+  };
+  const injected = html.replace(
+    "</head>",
+    `<script>window.__APP_CONFIG__ = ${JSON.stringify(appConfig)};</script></head>`
+  );
+  return res.status(200).type("html").send(injected);
+}
+
+app.get("/", (req, res, next) => {
+  if ((req.headers.accept || "").includes("text/html") || req.query.embedded || req.query.shop || req.query.host) {
+    return renderAppShell(req, res, true);
+  }
+  return next();
+});
+
+app.get("/app", (req, res) => {
+  return renderAppShell(req, res, false);
+});
+
+app.get("/embedded", (req, res) => {
+  return renderAppShell(req, res, true);
 });
 
 app.get("/recover/:token", (req, res) => {
@@ -145,7 +180,14 @@ app.get("/auth/callback", (req, res) => {
         scope: token.scope,
         updatedAt: new Date().toISOString()
       });
-      res.status(200).send("App installed successfully. OAuth token stored.");
+      const host = req.query.host as string | undefined;
+      if (env.SHOPIFY_API_KEY) {
+        const redirectUrl = new URL(`https://${shop}/admin/apps/${env.SHOPIFY_API_KEY}`);
+        if (host) redirectUrl.searchParams.set("host", host);
+        redirectUrl.searchParams.set("shop", shop);
+        return res.redirect(302, redirectUrl.toString());
+      }
+      return res.redirect(302, `/embedded?shop=${encodeURIComponent(shop)}${host ? `&host=${encodeURIComponent(host)}` : ""}`);
     })
     .catch((error) => {
       console.error(error);

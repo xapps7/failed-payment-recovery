@@ -80,6 +80,7 @@ function labelForState(state: SessionState): string {
 }
 
 export function App() {
+  const appConfig = window.__APP_CONFIG__;
   const [data, setData] = useState<DashboardPayload>(emptyPayload);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -142,8 +143,12 @@ export function App() {
           </p>
         </div>
         <div className="hero-side">
-          <span className="pill">{loading ? "Loading" : `${data.metrics.active} live recoveries`}</span>
+          <span className="pill">
+            {loading ? "Loading" : `${data.metrics.active} live recoveries`}
+          </span>
+          <p>{appConfig?.embedded ? "Embedded in Shopify Admin" : "Standalone app view"}</p>
           <p>Brand: {data.settings.brandName}</p>
+          <p>Store: {appConfig?.shop || "Not connected"}</p>
           <p>Support: {data.settings.supportEmail}</p>
         </div>
       </header>
