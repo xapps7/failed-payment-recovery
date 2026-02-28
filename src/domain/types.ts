@@ -11,6 +11,8 @@ export interface CheckoutSignal {
   email?: string;
   phone?: string;
   amountSubtotal?: number;
+  countryCode?: string;
+  customerSegment?: "all" | "new" | "returning" | "vip";
   paymentInfoSubmittedAt?: string;
   checkoutCompletedAt?: string;
 }
@@ -22,6 +24,8 @@ export interface RecoverySession {
   email?: string;
   phone?: string;
   amountSubtotal?: number;
+  countryCode?: string;
+  customerSegment?: "all" | "new" | "returning" | "vip";
   state: RecoveryState;
   attemptCount: number;
   failedAt?: string;

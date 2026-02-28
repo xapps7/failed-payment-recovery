@@ -27,3 +27,7 @@
 - Added `start` script and static `/app` serving for built frontend assets.
 - Converted app routing toward embedded Shopify admin mode: dynamic app shell injection, CSP frame-ancestors headers, and OAuth redirect back to Shopify admin app entry.
 - Added frontend awareness of embedded context and connected store identity.
+- Introduced merchant-controlled campaign model with rules, step sequencing, tone, and creative templates.
+- Added platform APIs: `/platform`, `/campaigns`, and campaign status updates.
+- Wired active campaign rules into eligibility and retry sequencing.
+- Rebuilt UI into four operator surfaces: Command Center, Campaign Studio, Recovery Feed, and Insights.

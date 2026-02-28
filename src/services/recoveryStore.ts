@@ -7,6 +7,8 @@ export interface CreateSessionInput {
   email?: string;
   phone?: string;
   amountSubtotal?: number;
+  countryCode?: string;
+  customerSegment?: "all" | "new" | "returning" | "vip";
   failedAt: string;
 }
 
@@ -42,6 +44,8 @@ export class InMemoryRecoveryStore implements RecoveryStore {
       email: input.email,
       phone: input.phone,
       amountSubtotal: input.amountSubtotal,
+      countryCode: input.countryCode,
+      customerSegment: input.customerSegment,
       state: "LIKELY_FAILED_PAYMENT",
       attemptCount: 0,
       failedAt: input.failedAt,

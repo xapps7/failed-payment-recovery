@@ -11,6 +11,7 @@ import { exchangeCodeForToken, verifyOAuthHmac } from "../services/shopifyOAuth"
 import { listShops, saveShopToken } from "../services/shopTokenStore";
 import { readSettings, writeSettings } from "../services/settingsStore";
 import { verifyRecoveryLink } from "../services/signedLink";
+import { getActiveCampaign, listCampaigns, saveCampaign, setCampaignStatus } from "../services/campaignStore";
 
 const app = express();
 app.set("trust proxy", true);
@@ -24,8 +25,9 @@ if (fs.existsSync(distDir)) {
 const store = new InMemoryRecoveryStore();
 const runtime = new RecoveryRuntime(
   store,
-  new ProviderNotifier(() => readSettings()),
-  () => readSettings().retryMinutes
+  new ProviderNotifier(() => readSettings(), () => getActiveCampaign()),
+  () => getActiveCampaign().steps.map((step) => step.delayMinutes),
+  () => getActiveCampaign()
 );
 const issuedOAuthStates = new Map<string, number>();
 
@@ -35,6 +37,8 @@ const paymentInfoSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().optional(),
   amountSubtotal: z.number().nonnegative().optional(),
+  countryCode: z.string().length(2).optional(),
+  customerSegment: z.enum(["all", "new", "returning", "vip"]).optional(),
   paymentInfoSubmittedAt: z.string().datetime(),
   checkoutCompletedAt: z.string().datetime().optional()
 });
@@ -55,6 +59,35 @@ const settingsSchema = z.object({
   sendEmail: z.boolean().optional(),
   sendSms: z.boolean().optional(),
   retryMinutes: z.array(z.number().int().positive()).min(1).optional()
+});
+
+const campaignSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  status: z.enum(["ACTIVE", "DRAFT", "PAUSED"]),
+  priority: z.number().int().positive(),
+  isDefault: z.boolean(),
+  rules: z.object({
+    minimumOrderValue: z.number().nonnegative(),
+    customerSegment: z.enum(["all", "new", "returning", "vip"]),
+    includeCountries: z.array(z.string().length(2)),
+    quietHoursStart: z.number().int().min(0).max(23),
+    quietHoursEnd: z.number().int().min(0).max(23)
+  }),
+  steps: z.array(
+    z.object({
+      id: z.string(),
+      delayMinutes: z.number().int().positive(),
+      channel: z.enum(["email", "sms"]),
+      tone: z.enum(["steady", "urgent", "concierge", "rescue"]),
+      stopIfPurchased: z.boolean()
+    })
+  ).min(1),
+  theme: z.object({
+    headline: z.string().min(1),
+    body: z.string().min(1),
+    sms: z.string().min(1)
+  })
 });
 
 app.get("/status", (_req, res) => {
@@ -199,20 +232,43 @@ app.get("/auth/shops", (_req, res) => {
   return res.status(200).json({ shops: listShops() });
 });
 
-app.get("/dashboard", (_req, res) => {
+app.get("/platform", (_req, res) => {
   const metrics = runtime.metrics();
   const settings = readSettings();
-  const sessions = runtime.recent(8);
+  const campaigns = listCampaigns();
+  const sessions = runtime.recent(12);
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
+  const channelMix = campaigns
+    .flatMap((campaign) => campaign.steps)
+    .reduce(
+      (acc, step) => {
+        acc[step.channel] += 1;
+        return acc;
+      },
+      { email: 0, sms: 0 }
+    );
 
   return res.status(200).json({
-    metrics: {
+    commandCenter: {
       ...metrics,
       recoveryRate
     },
     settings,
-    sessions
+    campaigns,
+    sessions,
+    insights: {
+      activeCampaign: getActiveCampaign().name,
+      channelMix,
+      highestPriorityCampaign: campaigns[0]?.name || null,
+      countriesCovered: Array.from(
+        new Set(campaigns.flatMap((campaign) => campaign.rules.includeCountries))
+      )
+    }
   });
+});
+
+app.get("/dashboard", (_req, res) => {
+  return res.redirect(302, "/platform");
 });
 
 app.get("/settings", (_req, res) => {
@@ -226,6 +282,30 @@ app.post("/settings", (req, res) => {
   }
 
   return res.status(200).json(writeSettings(parsed.data));
+});
+
+app.get("/campaigns", (_req, res) => {
+  return res.status(200).json({ campaigns: listCampaigns(), activeCampaignId: getActiveCampaign().id });
+});
+
+app.post("/campaigns", (req, res) => {
+  const parsed = campaignSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  return res.status(200).json(saveCampaign(parsed.data));
+});
+
+app.post("/campaigns/:id/status", (req, res) => {
+  const status = req.body?.status;
+  if (!status || !["ACTIVE", "DRAFT", "PAUSED"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  const updated = setCampaignStatus(req.params.id, status);
+  if (!updated) return res.status(404).json({ error: "Campaign not found" });
+  return res.status(200).json(updated);
 });
 
 app.post("/events/payment-info-submitted", (req, res) => {
