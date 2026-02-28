@@ -31,3 +31,7 @@
 - Added platform APIs: `/platform`, `/campaigns`, and campaign status updates.
 - Wired active campaign rules into eligibility and retry sequencing.
 - Rebuilt UI into four operator surfaces: Command Center, Campaign Studio, Recovery Feed, and Insights.
+- Added Prisma/Postgres stack: schema, client generation, and DB repository layer.
+- Introduced database-backed repositories for shops, settings, and campaigns with file-store fallback/write-through.
+- Added `DATABASE_URL` support and Prisma scripts for future migration.
+- Verified server/client types with `npx tsc --noEmit`.

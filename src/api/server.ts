@@ -8,10 +8,17 @@ import { ProviderNotifier } from "../services/notifier";
 import { RecoveryRuntime } from "../services/recoveryRuntime";
 import { appBaseUrl, appPort, env } from "../config/env";
 import { exchangeCodeForToken, verifyOAuthHmac } from "../services/shopifyOAuth";
-import { listShops, saveShopToken } from "../services/shopTokenStore";
-import { readSettings, writeSettings } from "../services/settingsStore";
+import { readSettings } from "../services/settingsStore";
 import { verifyRecoveryLink } from "../services/signedLink";
-import { getActiveCampaign, listCampaigns, saveCampaign, setCampaignStatus } from "../services/campaignStore";
+import { getActiveCampaign } from "../services/campaignStore";
+import {
+  getCurrentCampaign,
+  listRecoveryCampaigns,
+  saveRecoveryCampaign,
+  updateRecoveryCampaignStatus
+} from "../services/db/campaignRepository";
+import { listShopTokens, upsertShopToken } from "../services/db/shopRepository";
+import { readAppSettings, writeAppSettings } from "../services/db/settingsRepository";
 
 const app = express();
 app.set("trust proxy", true);
@@ -207,20 +214,21 @@ app.get("/auth/callback", (req, res) => {
 
   exchangeCodeForToken(shop, code)
     .then((token) => {
-      saveShopToken({
+      return upsertShopToken({
         shop,
         accessToken: token.access_token,
         scope: token.scope,
         updatedAt: new Date().toISOString()
+      }).then(() => {
+        const host = req.query.host as string | undefined;
+        if (env.SHOPIFY_API_KEY) {
+          const redirectUrl = new URL(`https://${shop}/admin/apps/${env.SHOPIFY_API_KEY}`);
+          if (host) redirectUrl.searchParams.set("host", host);
+          redirectUrl.searchParams.set("shop", shop);
+          return res.redirect(302, redirectUrl.toString());
+        }
+        return res.redirect(302, `/embedded?shop=${encodeURIComponent(shop)}${host ? `&host=${encodeURIComponent(host)}` : ""}`);
       });
-      const host = req.query.host as string | undefined;
-      if (env.SHOPIFY_API_KEY) {
-        const redirectUrl = new URL(`https://${shop}/admin/apps/${env.SHOPIFY_API_KEY}`);
-        if (host) redirectUrl.searchParams.set("host", host);
-        redirectUrl.searchParams.set("shop", shop);
-        return res.redirect(302, redirectUrl.toString());
-      }
-      return res.redirect(302, `/embedded?shop=${encodeURIComponent(shop)}${host ? `&host=${encodeURIComponent(host)}` : ""}`);
     })
     .catch((error) => {
       console.error(error);
@@ -228,14 +236,14 @@ app.get("/auth/callback", (req, res) => {
     });
 });
 
-app.get("/auth/shops", (_req, res) => {
-  return res.status(200).json({ shops: listShops() });
+app.get("/auth/shops", async (_req, res) => {
+  return res.status(200).json({ shops: await listShopTokens() });
 });
 
-app.get("/platform", (_req, res) => {
+app.get("/platform", async (_req, res) => {
   const metrics = runtime.metrics();
-  const settings = readSettings();
-  const campaigns = listCampaigns();
+  const settings = await readAppSettings();
+  const campaigns = await listRecoveryCampaigns();
   const sessions = runtime.recent(12);
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
@@ -257,7 +265,7 @@ app.get("/platform", (_req, res) => {
     campaigns,
     sessions,
     insights: {
-      activeCampaign: getActiveCampaign().name,
+      activeCampaign: (await getCurrentCampaign()).name,
       channelMix,
       highestPriorityCampaign: campaigns[0]?.name || null,
       countriesCovered: Array.from(
@@ -271,39 +279,40 @@ app.get("/dashboard", (_req, res) => {
   return res.redirect(302, "/platform");
 });
 
-app.get("/settings", (_req, res) => {
-  return res.status(200).json(readSettings());
+app.get("/settings", async (_req, res) => {
+  return res.status(200).json(await readAppSettings());
 });
 
-app.post("/settings", (req, res) => {
+app.post("/settings", async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  return res.status(200).json(writeSettings(parsed.data));
+  return res.status(200).json(await writeAppSettings(parsed.data));
 });
 
-app.get("/campaigns", (_req, res) => {
-  return res.status(200).json({ campaigns: listCampaigns(), activeCampaignId: getActiveCampaign().id });
+app.get("/campaigns", async (_req, res) => {
+  const campaigns = await listRecoveryCampaigns();
+  return res.status(200).json({ campaigns, activeCampaignId: (await getCurrentCampaign()).id });
 });
 
-app.post("/campaigns", (req, res) => {
+app.post("/campaigns", async (req, res) => {
   const parsed = campaignSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  return res.status(200).json(saveCampaign(parsed.data));
+  return res.status(200).json(await saveRecoveryCampaign(parsed.data));
 });
 
-app.post("/campaigns/:id/status", (req, res) => {
+app.post("/campaigns/:id/status", async (req, res) => {
   const status = req.body?.status;
   if (!status || !["ACTIVE", "DRAFT", "PAUSED"].includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
   }
 
-  const updated = setCampaignStatus(req.params.id, status);
+  const updated = await updateRecoveryCampaignStatus(req.params.id, status);
   if (!updated) return res.status(404).json({ error: "Campaign not found" });
   return res.status(200).json(updated);
 });

@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CampaignStatus {
+  ACTIVE
+  DRAFT
+  PAUSED
+}
+
+enum RecoveryChannel {
+  email
+  sms
+}
+
+enum CampaignTone {
+  steady
+  urgent
+  concierge
+  rescue
+}
+
+enum CustomerSegment {
+  all
+  new
+  returning
+  vip
+}
+
+enum RecoveryState {
+  PENDING
+  LIKELY_FAILED_PAYMENT
+  RECOVERED
+  EXPIRED
+  UNSUBSCRIBED
+}
+
+model Shop {
+  id            String            @id @default(cuid())
+  domain        String            @unique
+  accessToken   String
+  grantedScope  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  settings      ShopSetting?
+  campaigns     RecoveryCampaign[]
+  sessions      RecoverySession[]
+}
+
+model ShopSetting {
+  id            String   @id @default(cuid())
+  shopId        String   @unique
+  brandName     String
+  supportEmail  String
+  accentColor   String
+  sendEmail     Boolean  @default(true)
+  sendSms       Boolean  @default(false)
+  retryMinutes  Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+}
+
+model RecoveryCampaign {
+  id                String         @id @default(cuid())
+  shopId            String
+  name              String
+  status            CampaignStatus @default(DRAFT)
+  priority          Int
+  isDefault         Boolean        @default(false)
+  minimumOrderValue Float          @default(0)
+  customerSegment   CustomerSegment @default(all)
+  includeCountries  Json
+  quietHoursStart   Int            @default(22)
+  quietHoursEnd     Int            @default(8)
+  headline          String
+  body              String
+  sms               String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  shop              Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  steps             CampaignStep[]
+  sessions          RecoverySession[]
+
+  @@index([shopId, status])
+}
+
+model CampaignStep {
+  id              String          @id @default(cuid())
+  campaignId      String
+  sequence        Int
+  delayMinutes    Int
+  channel         RecoveryChannel
+  tone            CampaignTone
+  stopIfPurchased Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  campaign        RecoveryCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, sequence])
+}
+
+model RecoverySession {
+  id              String         @id @default(cuid())
+  shopId          String
+  campaignId      String?
+  checkoutToken   String
+  email           String?
+  phone           String?
+  amountSubtotal  Float?
+  countryCode     String?
+  customerSegment CustomerSegment?
+  state           RecoveryState  @default(LIKELY_FAILED_PAYMENT)
+  attemptCount    Int            @default(0)
+  failedAt        DateTime?
+  lastAttemptAt   DateTime?
+  nextAttemptAt   DateTime?
+  recoveredOrderId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  shop            Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  campaign        RecoveryCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deliveries      DeliveryAttempt[]
+
+  @@unique([shopId, checkoutToken])
+  @@index([shopId, state, nextAttemptAt])
+}
+
+model DeliveryAttempt {
+  id              String          @id @default(cuid())
+  sessionId       String
+  channel         RecoveryChannel
+  provider        String
+  status          String
+  providerMessageId String?
+  payload         Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  session         RecoverySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}

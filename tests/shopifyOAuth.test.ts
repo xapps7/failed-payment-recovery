@@ -11,7 +11,10 @@ function sign(params: URLSearchParams): string {
   });
   pairs.sort(([a], [b]) => a.localeCompare(b));
   const msg = pairs.map(([k, v]) => `${k}=${v}`).join("&");
-  return crypto.createHmac("sha256", env.SHOPIFY_API_SECRET).update(msg).digest("hex");
+  return crypto
+    .createHmac("sha256", env.SHOPIFY_API_SECRET || "test-secret")
+    .update(msg)
+    .digest("hex");
 }
 
 describe("verifyOAuthHmac", () => {
