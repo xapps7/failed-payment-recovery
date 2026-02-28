@@ -1,18 +1,32 @@
 import express from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { InMemoryRecoveryStore } from "../services/recoveryStore";
-import { ConsoleNotifier } from "../services/notifier";
+import { ProviderNotifier } from "../services/notifier";
 import { RecoveryRuntime } from "../services/recoveryRuntime";
 import { appBaseUrl, appPort, env } from "../config/env";
 import { exchangeCodeForToken, verifyOAuthHmac } from "../services/shopifyOAuth";
 import { listShops, saveShopToken } from "../services/shopTokenStore";
+import { readSettings, writeSettings } from "../services/settingsStore";
+import { verifyRecoveryLink } from "../services/signedLink";
 
 const app = express();
 app.set("trust proxy", true);
 app.use(express.json());
 
-const runtime = new RecoveryRuntime(new InMemoryRecoveryStore(), new ConsoleNotifier());
+const distDir = path.resolve(process.cwd(), "dist");
+if (fs.existsSync(distDir)) {
+  app.use("/app", express.static(distDir));
+}
+
+const store = new InMemoryRecoveryStore();
+const runtime = new RecoveryRuntime(
+  store,
+  new ProviderNotifier(() => readSettings()),
+  () => readSettings().retryMinutes
+);
 const issuedOAuthStates = new Map<string, number>();
 
 const paymentInfoSchema = z.object({
@@ -20,6 +34,7 @@ const paymentInfoSchema = z.object({
   shopDomain: z.string().min(1),
   email: z.string().email().optional(),
   phone: z.string().optional(),
+  amountSubtotal: z.number().nonnegative().optional(),
   paymentInfoSubmittedAt: z.string().datetime(),
   checkoutCompletedAt: z.string().datetime().optional()
 });
@@ -33,12 +48,41 @@ const unsubscribeSchema = z.object({
   checkoutToken: z.string().min(1)
 });
 
+const settingsSchema = z.object({
+  brandName: z.string().min(1).optional(),
+  supportEmail: z.string().email().optional(),
+  accentColor: z.string().min(4).optional(),
+  sendEmail: z.boolean().optional(),
+  sendSms: z.boolean().optional(),
+  retryMinutes: z.array(z.number().int().positive()).min(1).optional()
+});
+
 app.get("/", (_req, res) => {
   return res.status(200).json({ ok: true, service: "failed-payment-recovery" });
 });
 
 app.get("/health", (_req, res) => {
   return res.status(200).json({ ok: true });
+});
+
+app.get("/app", (_req, res) => {
+  if (!fs.existsSync(path.join(distDir, "index.html"))) {
+    return res.status(404).send("Frontend build not found. Run npm run build.");
+  }
+  return res.sendFile(path.join(distDir, "index.html"));
+});
+
+app.get("/recover/:token", (req, res) => {
+  const payload = verifyRecoveryLink(
+    req.params.token,
+    env.RECOVERY_LINK_SECRET || "dev-recovery-link-secret"
+  );
+  if (!payload) {
+    return res.status(401).send("Recovery link is invalid or expired.");
+  }
+
+  const checkoutUrl = `https://${payload.shopDomain}/cart`;
+  return res.redirect(checkoutUrl);
 });
 
 function buildInstallUrl(shop: string, baseUrl: string): string {
@@ -111,6 +155,35 @@ app.get("/auth/callback", (req, res) => {
 
 app.get("/auth/shops", (_req, res) => {
   return res.status(200).json({ shops: listShops() });
+});
+
+app.get("/dashboard", (_req, res) => {
+  const metrics = runtime.metrics();
+  const settings = readSettings();
+  const sessions = runtime.recent(8);
+  const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
+
+  return res.status(200).json({
+    metrics: {
+      ...metrics,
+      recoveryRate
+    },
+    settings,
+    sessions
+  });
+});
+
+app.get("/settings", (_req, res) => {
+  return res.status(200).json(readSettings());
+});
+
+app.post("/settings", (req, res) => {
+  const parsed = settingsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  return res.status(200).json(writeSettings(parsed.data));
 });
 
 app.post("/events/payment-info-submitted", (req, res) => {

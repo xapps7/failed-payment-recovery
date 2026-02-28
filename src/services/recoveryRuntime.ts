@@ -7,7 +7,8 @@ import { processRecoveryAttempt } from "../workers/recoveryWorker";
 export class RecoveryRuntime {
   constructor(
     private readonly store: RecoveryStore,
-    private readonly notifier: Notifier
+    private readonly notifier: Notifier,
+    private readonly getRetryMinutes: () => number[] = () => [15, 360, 1440]
   ) {}
 
   ingestSignal(signal: CheckoutSignal, nowIso: string): void {
@@ -35,9 +36,13 @@ export class RecoveryRuntime {
     const due = this.store.listDue(nowIso);
 
     for (const session of due) {
+      const retryMinutes = this.getRetryMinutes();
       const updated = await processRecoveryAttempt(session, nowIso, {
         sendEmail: (s) => this.notifier.sendEmail(s),
         sendSms: (s) => this.notifier.sendSms(s)
+      }, {
+        maxAttempts: retryMinutes.length,
+        minutesAfterFailure: retryMinutes
       });
       this.store.update(updated);
     }
@@ -47,5 +52,9 @@ export class RecoveryRuntime {
 
   metrics() {
     return this.store.summary();
+  }
+
+  recent(limit = 10) {
+    return this.store.listRecent(limit);
   }
 }

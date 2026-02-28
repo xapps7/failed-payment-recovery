@@ -6,6 +6,7 @@ export interface CreateSessionInput {
   shopDomain: string;
   email?: string;
   phone?: string;
+  amountSubtotal?: number;
   failedAt: string;
 }
 
@@ -15,12 +16,15 @@ export interface RecoveryStore {
   markRecovered(checkoutToken: string, orderId: string): RecoverySession | undefined;
   markUnsubscribed(checkoutToken: string): RecoverySession | undefined;
   listDue(nowIso: string): RecoverySession[];
+  listRecent(limit?: number): RecoverySession[];
   update(session: RecoverySession): RecoverySession;
   summary(): {
     detected: number;
     recovered: number;
     expired: number;
     active: number;
+    recoveredRevenue: number;
+    pendingRevenue: number;
   };
 }
 
@@ -35,8 +39,12 @@ export class InMemoryRecoveryStore implements RecoveryStore {
       id: randomUUID(),
       checkoutToken: input.checkoutToken,
       shopDomain: input.shopDomain,
+      email: input.email,
+      phone: input.phone,
+      amountSubtotal: input.amountSubtotal,
       state: "LIKELY_FAILED_PAYMENT",
       attemptCount: 0,
+      failedAt: input.failedAt,
       nextAttemptAt: input.failedAt
     };
 
@@ -86,6 +94,16 @@ export class InMemoryRecoveryStore implements RecoveryStore {
     });
   }
 
+  listRecent(limit = 10): RecoverySession[] {
+    return [...this.sessions.values()]
+      .sort((a, b) => {
+        const aTime = new Date(a.failedAt || 0).getTime();
+        const bTime = new Date(b.failedAt || 0).getTime();
+        return bTime - aTime;
+      })
+      .slice(0, limit);
+  }
+
   update(session: RecoverySession): RecoverySession {
     this.sessions.set(session.checkoutToken, session);
     return session;
@@ -97,7 +115,13 @@ export class InMemoryRecoveryStore implements RecoveryStore {
       detected: values.length,
       recovered: values.filter((s) => s.state === "RECOVERED").length,
       expired: values.filter((s) => s.state === "EXPIRED").length,
-      active: values.filter((s) => s.state === "LIKELY_FAILED_PAYMENT").length
+      active: values.filter((s) => s.state === "LIKELY_FAILED_PAYMENT").length,
+      recoveredRevenue: values
+        .filter((s) => s.state === "RECOVERED")
+        .reduce((sum, s) => sum + (s.amountSubtotal || 0), 0),
+      pendingRevenue: values
+        .filter((s) => s.state === "LIKELY_FAILED_PAYMENT")
+        .reduce((sum, s) => sum + (s.amountSubtotal || 0), 0)
     };
   }
 }

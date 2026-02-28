@@ -10,6 +10,7 @@ export interface CheckoutSignal {
   shopDomain: string;
   email?: string;
   phone?: string;
+  amountSubtotal?: number;
   paymentInfoSubmittedAt?: string;
   checkoutCompletedAt?: string;
 }
@@ -18,8 +19,13 @@ export interface RecoverySession {
   id: string;
   checkoutToken: string;
   shopDomain: string;
+  email?: string;
+  phone?: string;
+  amountSubtotal?: number;
   state: RecoveryState;
   attemptCount: number;
+  failedAt?: string;
+  lastAttemptAt?: string;
   nextAttemptAt?: string;
   recoveredOrderId?: string;
 }

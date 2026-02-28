@@ -9,6 +9,12 @@ const envSchema = z.object({
   SHOPIFY_APP_URL: z.string().url().optional(),
   SHOPIFY_SCOPES: z.string().min(1).optional(),
   SHOP_DOMAIN: z.string().min(1).optional(),
+  SENDGRID_API_KEY: z.string().min(1).optional(),
+  SENDGRID_FROM_EMAIL: z.string().email().optional(),
+  TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+  TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+  TWILIO_FROM_NUMBER: z.string().min(1).optional(),
+  RECOVERY_LINK_SECRET: z.string().min(16).optional(),
   PORT: z.string().optional()
 });
 

@@ -19,3 +19,9 @@
 - Wired Shopify OAuth flow with HMAC verification, state issuance/validation, and token exchange endpoint.
 - Added persistent local token storage (`data/shopTokens.json`) and shop listing endpoint.
 - Added OAuth verifier tests; test/build remain green.
+- Added provider-aware notifier with SendGrid/Twilio support and safe fallback logging.
+- Added persisted app settings store and live settings API.
+- Expanded session model to track contacts, timestamps, and revenue totals.
+- Added `/dashboard`, `/settings`, and `/recover/:token` endpoints.
+- Rebuilt the admin UI into a live operational dashboard with editable campaign settings and recent recovery sessions.
+- Added `start` script and static `/app` serving for built frontend assets.
