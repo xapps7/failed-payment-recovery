@@ -18,7 +18,7 @@ app.use(express.json());
 
 const distDir = path.resolve(process.cwd(), "dist");
 if (fs.existsSync(distDir)) {
-  app.use("/app", express.static(distDir));
+  app.use("/assets", express.static(path.join(distDir, "assets")));
 }
 
 const store = new InMemoryRecoveryStore();
