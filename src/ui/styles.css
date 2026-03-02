@@ -409,6 +409,10 @@ textarea {
   color: var(--muted);
 }
 
+.micro-copy {
+  font-size: 0.78rem;
+}
+
 .feed-meta {
   display: grid;
   gap: 8px;
@@ -428,6 +432,11 @@ textarea {
   border: 1px dashed var(--line);
   color: var(--muted);
   text-align: center;
+}
+
+.feed-actions {
+  display: grid;
+  gap: 8px;
 }
 
 .settings-page .studio-grid {

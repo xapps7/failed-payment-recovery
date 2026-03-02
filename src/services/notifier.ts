@@ -5,6 +5,7 @@ import { signRecoveryLink } from "./signedLink";
 import { appBaseUrl, env } from "../config/env";
 import type { RecoveryCampaign } from "./campaignStore";
 import type { DeliveryResult, MessageSender } from "../workers/recoveryWorker";
+import { getOrCreateRecoveryOffer } from "./recoveryOfferStore";
 
 function discountLabel(campaign: RecoveryCampaign, attemptNumber: number): string | null {
   const trigger = campaign.experience.discountAfterAttempt;
@@ -26,6 +27,14 @@ function paymentMethodHint(paymentMethod?: string): string | undefined {
 
 function buildRetryUrl(session: RecoverySession, campaign: RecoveryCampaign, settings: AppSettings): string {
   const incentive = discountLabel(campaign, session.attemptCount + 1);
+  const offer = incentive
+    ? getOrCreateRecoveryOffer({
+        checkoutToken: session.checkoutToken,
+        shopDomain: session.shopDomain,
+        type: campaign.experience.discountType,
+        value: campaign.experience.discountValue
+      })
+    : null;
   const token = signRecoveryLink(
     {
       checkoutToken: session.checkoutToken,
@@ -33,7 +42,7 @@ function buildRetryUrl(session: RecoverySession, campaign: RecoveryCampaign, set
       expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(),
       destination: campaign.experience.destination,
       supportEmail: settings.supportEmail,
-      discountText: incentive || undefined
+      discountText: offer ? `${incentive} with code ${offer.code}` : incentive || undefined
     },
     env.RECOVERY_LINK_SECRET || "dev-recovery-link-secret"
   );

@@ -18,6 +18,9 @@ import {
 import { listShopTokens, upsertShopToken } from "../services/db/shopRepository";
 import { readAppSettings, writeAppSettings } from "../services/db/settingsRepository";
 import { getRecoveryPayload, saveRecoveryPayload } from "../services/recoveryPayloadStore";
+import { getRecoveryOffer, getOrCreateRecoveryOffer } from "../services/recoveryOfferStore";
+import { getOperatorAction, saveOperatorAction } from "../services/operatorActionStore";
+import { recordProviderEvent } from "../services/providerEventStore";
 
 const app = express();
 app.set("trust proxy", true);
@@ -77,6 +80,11 @@ const settingsSchema = z.object({
   sendEmail: z.boolean().optional(),
   sendSms: z.boolean().optional(),
   retryMinutes: z.array(z.number().int().positive()).min(1).optional()
+});
+
+const manualOutreachSchema = z.object({
+  action: z.enum(["mark_contacted", "escalate_support"]),
+  shopDomain: z.string().min(1).optional()
 });
 
 const campaignSchema = z.object({
@@ -284,6 +292,11 @@ app.get("/platform", async (_req, res) => {
   const settings = await readAppSettings();
   const campaigns = await listRecoveryCampaigns();
   const sessions = await runtime.recent(12);
+  const enrichedSessions = sessions.map((session) => ({
+    ...session,
+    operatorAction: getOperatorAction(session.checkoutToken, session.shopDomain),
+    offer: getRecoveryOffer(session.checkoutToken, session.shopDomain)
+  }));
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
     .flatMap((campaign) => campaign.steps)
@@ -302,7 +315,7 @@ app.get("/platform", async (_req, res) => {
     },
     settings,
     campaigns,
-    sessions,
+    sessions: enrichedSessions,
     insights: {
       activeCampaign: (await getCurrentCampaign()).name,
       channelMix,
@@ -400,6 +413,38 @@ app.post("/unsubscribe", async (req, res) => {
 app.post("/jobs/run-due", async (_req, res) => {
   const processed = await runtime.runDue(new Date().toISOString());
   return res.status(200).json({ ok: true, processed });
+});
+
+app.post("/sessions/:checkoutToken/manual-outreach", async (req, res) => {
+  const parsed = manualOutreachSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const shopDomain = parsed.data.shopDomain || env.SHOP_DOMAIN || "default-shop";
+  const record = saveOperatorAction(req.params.checkoutToken, shopDomain, parsed.data.action);
+  return res.status(200).json(record);
+});
+
+app.post("/sessions/:checkoutToken/generate-offer", async (req, res) => {
+  const shopDomain = req.body?.shopDomain || env.SHOP_DOMAIN || "default-shop";
+  const campaign = await getCurrentCampaign();
+  const offer = getOrCreateRecoveryOffer({
+    checkoutToken: req.params.checkoutToken,
+    shopDomain,
+    type: campaign.experience.discountType,
+    value: campaign.experience.discountValue
+  });
+  return res.status(200).json(offer);
+});
+
+app.post("/webhooks/sendgrid/events", (req, res) => {
+  const event = recordProviderEvent("sendgrid", req.body);
+  return res.status(202).json({ ok: true, receivedAt: event.receivedAt });
+});
+
+app.post("/webhooks/twilio/status", (req, res) => {
+  const event = recordProviderEvent("twilio", req.body);
+  return res.status(202).json({ ok: true, receivedAt: event.receivedAt });
 });
 
 app.get("/metrics", async (_req, res) => {

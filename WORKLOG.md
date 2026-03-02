@@ -46,3 +46,6 @@
 - Upgraded retry resolver to rebuild cart or route to support with a dedicated assist page.
 - Made messages payment-aware and stronger on retry guidance.
 - Tuned typography and control density closer to Shopify-native admin surfaces.
+- Added manual outreach actions in Recovery Feed (mark contacted / escalate support).
+- Added internal recovery-offer generation and persistence.
+- Added SendGrid/Twilio webhook endpoints for provider status ingestion.

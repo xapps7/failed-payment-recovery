@@ -73,6 +73,15 @@ type PlatformPayload = {
     attemptCount: number;
     failedAt?: string;
     nextAttemptAt?: string;
+    operatorAction?: {
+      lastAction: "mark_contacted" | "escalate_support";
+      actionHistory: Array<{ action: "mark_contacted" | "escalate_support"; at: string }>;
+    };
+    offer?: {
+      code: string;
+      type: "percentage" | "fixed";
+      value: number;
+    };
   }>;
   insights: {
     activeCampaign: string;
@@ -209,6 +218,28 @@ export function App() {
     }
     await refresh();
     setSaveState("Settings saved.");
+  }
+
+  async function runFeedAction(checkoutToken: string, action: "mark_contacted" | "escalate_support") {
+    const response = await fetch(`/sessions/${checkoutToken}/manual-outreach`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    if (response.ok) {
+      await refresh();
+    }
+  }
+
+  async function generateOffer(checkoutToken: string) {
+    const response = await fetch(`/sessions/${checkoutToken}/generate-offer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    if (response.ok) {
+      await refresh();
+    }
   }
 
   function updateSelectedCampaign(updater: (campaign: NonNullable<typeof selectedCampaign>) => NonNullable<typeof selectedCampaign>) {
@@ -445,6 +476,7 @@ export function App() {
                 <div>
                   <strong>{session.checkoutToken}</strong>
                   <p>{session.email || session.phone || "No reachable contact"}</p>
+                  {session.offer ? <p className="micro-copy">Offer: {session.offer.code}</p> : null}
                 </div>
                 <div className="feed-meta left">
                   <span>{formatCurrency(session.amountSubtotal || 0)}</span>
@@ -454,6 +486,11 @@ export function App() {
                 <div className="feed-meta">
                   <span>Attempt {session.attemptCount + 1}</span>
                   <span className={`badge badge-${session.state.toLowerCase()}`}>{stateLabel(session.state)}</span>
+                </div>
+                <div className="feed-actions">
+                  <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, "mark_contacted")}>Mark contacted</button>
+                  <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, "escalate_support")}>Escalate</button>
+                  <button className="ghost-button" onClick={() => void generateOffer(session.checkoutToken)}>Generate offer</button>
                 </div>
               </article>
             ))}
