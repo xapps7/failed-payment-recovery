@@ -6,6 +6,7 @@ interface SignedPayload {
   expiresAt: string;
   destination?: "checkout" | "cart" | "support";
   supportEmail?: string;
+  discountText?: string;
 }
 
 function b64url(input: Buffer): string {

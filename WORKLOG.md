@@ -42,3 +42,7 @@
 - Held push intentionally until Neon schema can be updated with a direct connection string.
 - Neon schema was updated manually to support payment-method targeting, retry destinations, and escalation fields.
 - Final validation passed for the recovery persistence and settings-surface upgrade.
+- Added recovery payload capture for checkout/cart URLs, line items, currency, and failure labels.
+- Upgraded retry resolver to rebuild cart or route to support with a dedicated assist page.
+- Made messages payment-aware and stronger on retry guidance.
+- Tuned typography and control density closer to Shopify-native admin surfaces.

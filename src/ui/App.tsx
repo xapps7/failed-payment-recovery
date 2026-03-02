@@ -376,6 +376,11 @@ export function App() {
                   <input type="number" min={0} value={selectedCampaign.experience.directContactAfterAttempt ?? 0} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(e.target.value) || null } }))} />
                 </label>
                 <label className="toggle"><input type="checkbox" checked={selectedCampaign.experience.allowAgentEscalation} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, allowAgentEscalation: e.target.checked } }))} /><span>Allow agent escalation</span></label>
+                <div className="control-list compact-list">
+                  <div><span>Buyer landing</span><strong>{selectedCampaign.experience.destination}</strong></div>
+                  <div><span>Discount policy</span><strong>{selectedCampaign.experience.discountAfterAttempt ? `After attempt ${selectedCampaign.experience.discountAfterAttempt}` : "Off"}</strong></div>
+                  <div><span>Manual support</span><strong>{selectedCampaign.experience.directContactAfterAttempt ? `After attempt ${selectedCampaign.experience.directContactAfterAttempt}` : "Off"}</strong></div>
+                </div>
               </div>
               <div className="studio-column full-width">
                 <div className="section-subhead">Sequence Builder</div>
@@ -453,6 +458,7 @@ export function App() {
               </article>
             ))}
           </div>
+          <div className="section-note">Retry links now resolve to checkout, cart, or support based on campaign policy and stored recovery payload.</div>
         </section>
       ) : null}
 

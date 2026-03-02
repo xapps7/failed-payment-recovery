@@ -17,6 +17,7 @@ import {
 } from "../services/db/campaignRepository";
 import { listShopTokens, upsertShopToken } from "../services/db/shopRepository";
 import { readAppSettings, writeAppSettings } from "../services/db/settingsRepository";
+import { getRecoveryPayload, saveRecoveryPayload } from "../services/recoveryPayloadStore";
 
 const app = express();
 app.set("trust proxy", true);
@@ -45,6 +46,17 @@ const paymentInfoSchema = z.object({
   countryCode: z.string().length(2).optional(),
   customerSegment: z.enum(["all", "new", "returning", "vip"]).optional(),
   paymentMethod: z.string().min(1).optional(),
+  paymentFailureLabel: z.string().min(1).optional(),
+  checkoutUrl: z.string().url().optional(),
+  cartUrl: z.string().url().optional(),
+  currencyCode: z.string().length(3).optional(),
+  lineItems: z.array(
+    z.object({
+      variantId: z.string().min(1),
+      quantity: z.number().int().positive(),
+      title: z.string().optional()
+    })
+  ).optional(),
   paymentInfoSubmittedAt: z.string().datetime(),
   checkoutCompletedAt: z.string().datetime().optional()
 });
@@ -165,14 +177,26 @@ app.get("/recover/:token", (req, res) => {
   }
 
   if (payload.destination === "support" && payload.supportEmail) {
-    const subject = encodeURIComponent("Payment recovery help");
-    const body = encodeURIComponent(`Please help me complete checkout for ${payload.checkoutToken}.`);
-    return res.redirect(`mailto:${payload.supportEmail}?subject=${subject}&body=${body}`);
+    const supportLink = `mailto:${payload.supportEmail}?subject=${encodeURIComponent("Payment recovery help")}&body=${encodeURIComponent(`Please help me complete checkout for ${payload.checkoutToken}.`)}`;
+    return res.status(200).type("html").send(`<!doctype html><html><head><title>Need Help?</title><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;padding:24px;background:#f6f6f7;color:#202223;"><main style="max-width:560px;margin:32px auto;background:#fff;padding:24px;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.06);"><p style="margin:0 0 8px;color:#6d7175;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Retryly Support Assist</p><h1 style="margin:0 0 12px;font-size:28px;">A specialist can help complete this order.</h1><p style="margin:0 0 12px;line-height:1.6;">Your payment needs manual help. Contact the merchant directly and they can guide you through the fastest completion path.</p>${payload.discountText ? `<p style="margin:0 0 12px;line-height:1.6;"><strong>Offer available:</strong> ${payload.discountText}</p>` : ""}<p><a href="${supportLink}" style="display:inline-block;background:#008060;color:#fff;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:600;">Contact support</a></p></main></body></html>`);
+  }
+
+  const recoveryPayload = getRecoveryPayload(payload.checkoutToken, payload.shopDomain);
+  if (payload.destination !== "cart" && recoveryPayload?.checkoutUrl) {
+    return res.redirect(recoveryPayload.checkoutUrl);
+  }
+  if (recoveryPayload?.cartUrl) {
+    return res.redirect(recoveryPayload.cartUrl);
+  }
+  if (recoveryPayload?.lineItems?.length) {
+    const items = recoveryPayload.lineItems.map((item) => `${item.variantId}:${item.quantity}`).join(",");
+    const url = new URL(`https://${payload.shopDomain}/cart/${items}`);
+    if (payload.discountText) url.searchParams.set("discount_hint", payload.discountText);
+    return res.redirect(url.toString());
   }
 
   const destination = payload.destination === "cart" ? "cart" : "checkout";
-  const checkoutUrl = `https://${payload.shopDomain}/${destination}`;
-  return res.redirect(checkoutUrl);
+  return res.redirect(`https://${payload.shopDomain}/${destination}`);
 });
 
 function buildInstallUrl(shop: string, baseUrl: string): string {
@@ -338,6 +362,17 @@ app.post("/events/payment-info-submitted", async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
+  saveRecoveryPayload({
+    checkoutToken: parsed.data.checkoutToken,
+    shopDomain: parsed.data.shopDomain,
+    checkoutUrl: parsed.data.checkoutUrl,
+    cartUrl: parsed.data.cartUrl,
+    lineItems: parsed.data.lineItems || [],
+    currencyCode: parsed.data.currencyCode,
+    paymentMethod: parsed.data.paymentMethod,
+    paymentFailureLabel: parsed.data.paymentFailureLabel,
+    updatedAt: new Date().toISOString()
+  });
   await runtime.ingestSignal(parsed.data, new Date().toISOString());
   return res.status(202).json({ ok: true });
 });
