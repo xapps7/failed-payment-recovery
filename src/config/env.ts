@@ -22,6 +22,24 @@ const envSchema = z.object({
 
 export const env = envSchema.parse(process.env);
 
+const requiredShopifyScopes = [
+  "read_orders",
+  "read_customers",
+  "read_discounts",
+  "write_discounts",
+  "read_pixels",
+  "write_pixels",
+  "read_customer_events"
+];
+
+export function shopifyScopes(): string {
+  const requested = (env.SHOPIFY_SCOPES || "")
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return Array.from(new Set([...requested, ...requiredShopifyScopes])).join(",");
+}
+
 export function appBaseUrl(): string {
   return (env.SHOPIFY_APP_URL || "http://127.0.0.1:8080").replace(/\/$/, "");
 }

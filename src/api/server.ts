@@ -6,7 +6,7 @@ import { z } from "zod";
 import { InMemoryRecoveryStore } from "../services/recoveryStore";
 import { ProviderNotifier } from "../services/notifier";
 import { RecoveryRuntime } from "../services/recoveryRuntime";
-import { appBaseUrl, appPort, env } from "../config/env";
+import { appBaseUrl, appPort, env, shopifyScopes } from "../config/env";
 import { exchangeCodeForToken, verifyOAuthHmac } from "../services/shopifyOAuth";
 import { verifyRecoveryLink } from "../services/signedLink";
 import {
@@ -24,6 +24,7 @@ import { recordProviderEvent } from "../services/providerEventStore";
 import { getEngagement, recordClick, recordOpen } from "../services/engagementStore";
 import { getDeliveryStatus, saveDeliveryStatus } from "../services/deliveryStatusStore";
 import { createShopifyDiscountCode } from "../services/shopifyDiscountService";
+import { activateShopifyWebPixel } from "../services/shopifyPixelService";
 
 const app = express();
 app.set("trust proxy", true);
@@ -99,6 +100,10 @@ const settingsSchema = z.object({
 
 const manualOutreachSchema = z.object({
   action: z.enum(["mark_contacted", "escalate_support"]),
+  shopDomain: z.string().min(1).optional()
+});
+
+const pixelActivationSchema = z.object({
   shopDomain: z.string().min(1).optional()
 });
 
@@ -225,13 +230,13 @@ app.get("/recover/:token", (req, res) => {
 });
 
 function buildInstallUrl(shop: string, baseUrl: string): string {
-  if (!env.SHOPIFY_API_KEY || !env.SHOPIFY_SCOPES) {
-    throw new Error("Missing SHOPIFY_API_KEY or SHOPIFY_SCOPES");
+  if (!env.SHOPIFY_API_KEY) {
+    throw new Error("Missing SHOPIFY_API_KEY");
   }
   const state = crypto.randomBytes(16).toString("hex");
   issuedOAuthStates.set(state, Date.now());
   const redirectUri = `${baseUrl}/auth/callback`;
-  const scopes = env.SHOPIFY_SCOPES;
+  const scopes = shopifyScopes();
   const query = new URLSearchParams({
     client_id: env.SHOPIFY_API_KEY,
     scope: scopes,
@@ -500,6 +505,21 @@ app.post("/sessions/:checkoutToken/generate-offer", async (req, res) => {
     reason: error instanceof Error ? error.message : "Unknown error"
   }));
   return res.status(200).json({ offer, shopifyDiscount });
+});
+
+app.post("/pixels/activate", async (req, res) => {
+  const parsed = pixelActivationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const shopDomain = parsed.data.shopDomain || env.SHOP_DOMAIN;
+  if (!shopDomain) {
+    return res.status(400).json({ error: "Missing shopDomain" });
+  }
+
+  const result = await activateShopifyWebPixel(shopDomain);
+  const statusCode = result.activated ? 200 : 422;
+  return res.status(statusCode).json(result);
 });
 
 app.post("/webhooks/sendgrid/events", (req, res) => {

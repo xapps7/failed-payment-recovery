@@ -171,6 +171,7 @@ export function App() {
   const [saveState, setSaveState] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
   const [section, setSection] = useState<AppSection>("overview");
+  const [activatingPixel, setActivatingPixel] = useState(false);
 
   useEffect(() => {
     void refresh();
@@ -265,6 +266,24 @@ export function App() {
     if (response.ok) {
       await refresh();
     }
+  }
+
+  async function activatePixel() {
+    const shopDomain = appConfig?.shop || data.sessions[0]?.shopDomain || "";
+    if (!shopDomain) {
+      setSaveState("Missing shop domain for pixel activation.");
+      return;
+    }
+    setActivatingPixel(true);
+    setSaveState("");
+    const response = await fetch("/pixels/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shopDomain })
+    });
+    const payload = (await response.json()) as { activated?: boolean; reason?: string };
+    setActivatingPixel(false);
+    setSaveState(response.ok ? "Web pixel activated for this store." : payload.reason || "Web pixel activation failed.");
   }
 
   function updateSelectedCampaign(updater: (campaign: NonNullable<typeof selectedCampaign>) => NonNullable<typeof selectedCampaign>) {
@@ -585,7 +604,13 @@ export function App() {
           </div>
           <div className="action-row single-action">
             <button className="save-button" onClick={() => void saveSettings()} disabled={saving}>{saving ? "Saving..." : "Save settings"}</button>
+            <button className="ghost-button" onClick={() => void activatePixel()} disabled={activatingPixel}>
+              {activatingPixel ? "Activating pixel..." : "Activate store pixel"}
+            </button>
             {saveState ? <span className="status-line">{saveState}</span> : null}
+          </div>
+          <div className="section-note">
+            Install scopes now include discounts and web-pixel access. Reinstall the app after deploy so Shopify grants the expanded permissions.
           </div>
         </section>
       ) : null}

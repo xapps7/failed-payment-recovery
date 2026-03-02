@@ -1,0 +1,14 @@
+name = "retryly-web-pixel"
+type = "web_pixel_extension"
+runtime_context = "strict"
+
+[settings]
+type = "object"
+
+[settings.fields.endpoint]
+name = "Tracking endpoint"
+type = "single_line_text_field"
+
+[settings.fields.shopDomain]
+name = "Shop domain"
+type = "single_line_text_field"
