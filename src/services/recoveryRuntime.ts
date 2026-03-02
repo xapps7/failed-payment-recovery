@@ -10,14 +10,14 @@ export class RecoveryRuntime {
     private readonly store: RecoveryStore,
     private readonly notifier: Notifier,
     private readonly getRetryMinutes: () => number[] = () => [15, 360, 1440],
-    private readonly getActiveCampaign?: () => RecoveryCampaign
+    private readonly getActiveCampaign?: () => Promise<RecoveryCampaign> | RecoveryCampaign
   ) {}
 
-  ingestSignal(signal: CheckoutSignal, nowIso: string): void {
+  async ingestSignal(signal: CheckoutSignal, nowIso: string): Promise<void> {
     const failed = inferLikelyFailedPayment(signal, nowIso);
     if (!failed) return;
 
-    const campaign = this.getActiveCampaign?.();
+    const campaign = this.getActiveCampaign ? await Promise.resolve(this.getActiveCampaign()) : undefined;
     if (campaign) {
       if ((signal.amountSubtotal || 0) < campaign.rules.minimumOrderValue) return;
       if (
@@ -34,9 +34,17 @@ export class RecoveryRuntime {
       ) {
         return;
       }
+      if (
+        campaign.rules.paymentMethods.length > 0 &&
+        signal.paymentMethod &&
+        !campaign.rules.paymentMethods.includes(signal.paymentMethod)
+      ) {
+        return;
+      }
     }
 
-    this.store.upsertFailedSession({
+    await this.store.upsertFailedSession({
+      campaignId: campaign?.id,
       checkoutToken: signal.checkoutToken,
       shopDomain: signal.shopDomain,
       email: signal.email,
@@ -44,41 +52,56 @@ export class RecoveryRuntime {
       amountSubtotal: signal.amountSubtotal,
       countryCode: signal.countryCode,
       customerSegment: signal.customerSegment,
+      paymentMethod: signal.paymentMethod,
       failedAt: nowIso
     });
   }
 
-  markCheckoutRecovered(checkoutToken: string, orderId: string): void {
-    this.store.markRecovered(checkoutToken, orderId);
+  async markCheckoutRecovered(checkoutToken: string, orderId: string, shopDomain?: string): Promise<void> {
+    await this.store.markRecovered(checkoutToken, orderId, shopDomain);
   }
 
-  unsubscribe(checkoutToken: string): void {
-    this.store.markUnsubscribed(checkoutToken);
+  async unsubscribe(checkoutToken: string, shopDomain?: string): Promise<void> {
+    await this.store.markUnsubscribed(checkoutToken, shopDomain);
   }
 
   async runDue(nowIso: string): Promise<number> {
-    const due = this.store.listDue(nowIso);
+    const due = await this.store.listDue(nowIso);
+    const campaign = this.getActiveCampaign ? await Promise.resolve(this.getActiveCampaign()) : undefined;
 
     for (const session of due) {
-      const retryMinutes = this.getRetryMinutes();
-      const updated = await processRecoveryAttempt(session, nowIso, {
+      const retryMinutes = campaign
+        ? campaign.steps.map((step) => step.delayMinutes)
+        : this.getRetryMinutes();
+      const activeStep = campaign?.steps[Math.min(session.attemptCount, campaign.steps.length - 1)];
+      const result = await processRecoveryAttempt(session, nowIso, {
         sendEmail: (s) => this.notifier.sendEmail(s),
         sendSms: (s) => this.notifier.sendSms(s)
       }, {
         maxAttempts: retryMinutes.length,
         minutesAfterFailure: retryMinutes
-      });
-      this.store.update(updated);
+      }, activeStep);
+      await this.store.update(result.session);
+      for (const delivery of result.deliveries) {
+        if (!delivery.sent) continue;
+        await this.store.recordDeliveryAttempt({
+          sessionId: result.session.id,
+          channel: delivery.channel,
+          provider: delivery.provider,
+          status: delivery.status,
+          payload: delivery.payload
+        });
+      }
     }
 
     return due.length;
   }
 
-  metrics() {
+  async metrics() {
     return this.store.summary();
   }
 
-  recent(limit = 10) {
+  async recent(limit = 10) {
     return this.store.listRecent(limit);
   }
 }

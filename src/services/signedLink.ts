@@ -4,6 +4,8 @@ interface SignedPayload {
   checkoutToken: string;
   shopDomain: string;
   expiresAt: string;
+  destination?: "checkout" | "cart" | "support";
+  supportEmail?: string;
 }
 
 function b64url(input: Buffer): string {

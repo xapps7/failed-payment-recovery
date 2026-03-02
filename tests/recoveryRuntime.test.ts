@@ -8,10 +8,12 @@ class TestNotifier implements Notifier {
 
   async sendEmail() {
     this.sent += 1;
+    return { channel: "email" as const, provider: "test", status: "sent", sent: true };
   }
 
   async sendSms() {
     this.sent += 1;
+    return { channel: "sms" as const, provider: "test", status: "sent", sent: true };
   }
 }
 
@@ -21,7 +23,7 @@ describe("RecoveryRuntime", () => {
     const notifier = new TestNotifier();
     const runtime = new RecoveryRuntime(store, notifier);
 
-    runtime.ingestSignal(
+    await runtime.ingestSignal(
       {
         checkoutToken: "chk_1",
         shopDomain: "example.myshopify.com",
@@ -31,18 +33,19 @@ describe("RecoveryRuntime", () => {
     );
 
     const processed = await runtime.runDue("2026-02-24T12:30:00.000Z");
+    const metrics = await runtime.metrics();
 
     expect(processed).toBe(1);
-    expect(notifier.sent).toBe(2);
-    expect(runtime.metrics().detected).toBe(1);
+    expect(notifier.sent).toBe(1);
+    expect(metrics.detected).toBe(1);
   });
 
-  it("marks recovered sessions", () => {
+  it("marks recovered sessions", async () => {
     const store = new InMemoryRecoveryStore();
     const notifier = new TestNotifier();
     const runtime = new RecoveryRuntime(store, notifier);
 
-    runtime.ingestSignal(
+    await runtime.ingestSignal(
       {
         checkoutToken: "chk_2",
         shopDomain: "example.myshopify.com",
@@ -51,8 +54,9 @@ describe("RecoveryRuntime", () => {
       "2026-02-24T12:30:00.000Z"
     );
 
-    runtime.markCheckoutRecovered("chk_2", "order_99");
+    await runtime.markCheckoutRecovered("chk_2", "order_99", "example.myshopify.com");
+    const metrics = await runtime.metrics();
 
-    expect(runtime.metrics().recovered).toBe(1);
+    expect(metrics.recovered).toBe(1);
   });
 });

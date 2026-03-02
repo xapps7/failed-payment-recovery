@@ -8,9 +8,7 @@ import { ProviderNotifier } from "../services/notifier";
 import { RecoveryRuntime } from "../services/recoveryRuntime";
 import { appBaseUrl, appPort, env } from "../config/env";
 import { exchangeCodeForToken, verifyOAuthHmac } from "../services/shopifyOAuth";
-import { readSettings } from "../services/settingsStore";
 import { verifyRecoveryLink } from "../services/signedLink";
-import { getActiveCampaign } from "../services/campaignStore";
 import {
   getCurrentCampaign,
   listRecoveryCampaigns,
@@ -32,9 +30,9 @@ if (fs.existsSync(distDir)) {
 const store = new InMemoryRecoveryStore();
 const runtime = new RecoveryRuntime(
   store,
-  new ProviderNotifier(() => readSettings(), () => getActiveCampaign()),
-  () => getActiveCampaign().steps.map((step) => step.delayMinutes),
-  () => getActiveCampaign()
+  new ProviderNotifier(() => readAppSettings(), () => getCurrentCampaign()),
+  () => [15, 360, 1440],
+  () => getCurrentCampaign()
 );
 const issuedOAuthStates = new Map<string, number>();
 
@@ -46,6 +44,7 @@ const paymentInfoSchema = z.object({
   amountSubtotal: z.number().nonnegative().optional(),
   countryCode: z.string().length(2).optional(),
   customerSegment: z.enum(["all", "new", "returning", "vip"]).optional(),
+  paymentMethod: z.string().min(1).optional(),
   paymentInfoSubmittedAt: z.string().datetime(),
   checkoutCompletedAt: z.string().datetime().optional()
 });
@@ -78,6 +77,7 @@ const campaignSchema = z.object({
     minimumOrderValue: z.number().nonnegative(),
     customerSegment: z.enum(["all", "new", "returning", "vip"]),
     includeCountries: z.array(z.string().length(2)),
+    paymentMethods: z.array(z.string()),
     quietHoursStart: z.number().int().min(0).max(23),
     quietHoursEnd: z.number().int().min(0).max(23)
   }),
@@ -94,6 +94,14 @@ const campaignSchema = z.object({
     headline: z.string().min(1),
     body: z.string().min(1),
     sms: z.string().min(1)
+  }),
+  experience: z.object({
+    destination: z.enum(["checkout", "cart", "support"]),
+    discountAfterAttempt: z.number().int().positive().nullable(),
+    discountType: z.enum(["percentage", "fixed"]),
+    discountValue: z.number().nonnegative(),
+    directContactAfterAttempt: z.number().int().positive().nullable(),
+    allowAgentEscalation: z.boolean()
   })
 });
 
@@ -156,7 +164,14 @@ app.get("/recover/:token", (req, res) => {
     return res.status(401).send("Recovery link is invalid or expired.");
   }
 
-  const checkoutUrl = `https://${payload.shopDomain}/cart`;
+  if (payload.destination === "support" && payload.supportEmail) {
+    const subject = encodeURIComponent("Payment recovery help");
+    const body = encodeURIComponent(`Please help me complete checkout for ${payload.checkoutToken}.`);
+    return res.redirect(`mailto:${payload.supportEmail}?subject=${subject}&body=${body}`);
+  }
+
+  const destination = payload.destination === "cart" ? "cart" : "checkout";
+  const checkoutUrl = `https://${payload.shopDomain}/${destination}`;
   return res.redirect(checkoutUrl);
 });
 
@@ -241,10 +256,10 @@ app.get("/auth/shops", async (_req, res) => {
 });
 
 app.get("/platform", async (_req, res) => {
-  const metrics = runtime.metrics();
+  const metrics = await runtime.metrics();
   const settings = await readAppSettings();
   const campaigns = await listRecoveryCampaigns();
-  const sessions = runtime.recent(12);
+  const sessions = await runtime.recent(12);
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
     .flatMap((campaign) => campaign.steps)
@@ -317,33 +332,33 @@ app.post("/campaigns/:id/status", async (req, res) => {
   return res.status(200).json(updated);
 });
 
-app.post("/events/payment-info-submitted", (req, res) => {
+app.post("/events/payment-info-submitted", async (req, res) => {
   const parsed = paymentInfoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  runtime.ingestSignal(parsed.data, new Date().toISOString());
+  await runtime.ingestSignal(parsed.data, new Date().toISOString());
   return res.status(202).json({ ok: true });
 });
 
-app.post("/events/checkout-completed", (req, res) => {
+app.post("/events/checkout-completed", async (req, res) => {
   const parsed = recoveredSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  runtime.markCheckoutRecovered(parsed.data.checkoutToken, parsed.data.orderId);
+  await runtime.markCheckoutRecovered(parsed.data.checkoutToken, parsed.data.orderId);
   return res.status(202).json({ ok: true });
 });
 
-app.post("/unsubscribe", (req, res) => {
+app.post("/unsubscribe", async (req, res) => {
   const parsed = unsubscribeSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  runtime.unsubscribe(parsed.data.checkoutToken);
+  await runtime.unsubscribe(parsed.data.checkoutToken);
   return res.status(202).json({ ok: true });
 });
 
@@ -352,8 +367,8 @@ app.post("/jobs/run-due", async (_req, res) => {
   return res.status(200).json({ ok: true, processed });
 });
 
-app.get("/metrics", (_req, res) => {
-  return res.status(200).json(runtime.metrics());
+app.get("/metrics", async (_req, res) => {
+  return res.status(200).json(await runtime.metrics());
 });
 
 const port = appPort();

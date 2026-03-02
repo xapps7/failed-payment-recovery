@@ -5,6 +5,7 @@ type SessionState = "LIKELY_FAILED_PAYMENT" | "RECOVERED" | "EXPIRED" | "UNSUBSC
 type CampaignStatus = "ACTIVE" | "DRAFT" | "PAUSED";
 type CampaignTone = "steady" | "urgent" | "concierge" | "rescue";
 type CampaignChannel = "email" | "sms";
+type AppSection = "overview" | "campaigns" | "feed" | "settings";
 
 type PlatformPayload = {
   commandCenter: {
@@ -34,6 +35,7 @@ type PlatformPayload = {
       minimumOrderValue: number;
       customerSegment: "all" | "new" | "returning" | "vip";
       includeCountries: string[];
+      paymentMethods: string[];
       quietHoursStart: number;
       quietHoursEnd: number;
     };
@@ -49,6 +51,14 @@ type PlatformPayload = {
       body: string;
       sms: string;
     };
+    experience: {
+      destination: "checkout" | "cart" | "support";
+      discountAfterAttempt: number | null;
+      discountType: "percentage" | "fixed";
+      discountValue: number;
+      directContactAfterAttempt: number | null;
+      allowAgentEscalation: boolean;
+    };
   }>;
   sessions: Array<{
     id: string;
@@ -58,6 +68,7 @@ type PlatformPayload = {
     amountSubtotal?: number;
     countryCode?: string;
     customerSegment?: "all" | "new" | "returning" | "vip";
+    paymentMethod?: string;
     state: SessionState;
     attemptCount: number;
     failedAt?: string;
@@ -129,6 +140,7 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [section, setSection] = useState<AppSection>("overview");
 
   useEffect(() => {
     void refresh();
@@ -147,13 +159,6 @@ export function App() {
     [data.campaigns, selectedCampaignId]
   );
 
-  const commandCards = [
-    { label: "Recovered revenue", value: formatCurrency(data.commandCenter.recoveredRevenue), tone: "success" },
-    { label: "At-risk revenue", value: formatCurrency(data.commandCenter.pendingRevenue), tone: "warning" },
-    { label: "Detected failures", value: String(data.commandCenter.detected), tone: "default" },
-    { label: "Recovery rate", value: `${data.commandCenter.recoveryRate}%`, tone: "default" }
-  ];
-
   async function saveCampaign() {
     if (!selectedCampaign) return;
     setSaving(true);
@@ -163,15 +168,12 @@ export function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(selectedCampaign)
     });
-
+    setSaving(false);
     if (!response.ok) {
       setSaveState("Campaign save failed.");
-      setSaving(false);
       return;
     }
-
     await refresh();
-    setSaving(false);
     setSaveState("Campaign saved.");
   }
 
@@ -183,36 +185,61 @@ export function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "ACTIVE" })
     });
-
+    setSaving(false);
     if (!response.ok) {
       setSaveState("Could not activate campaign.");
-      setSaving(false);
       return;
     }
-
     await refresh();
-    setSaving(false);
     setSaveState("Active campaign updated.");
   }
 
-  function updateSelectedCampaign(updater: (campaign: NonNullable<typeof selectedCampaign>) => typeof selectedCampaign) {
+  async function saveSettings() {
+    setSaving(true);
+    setSaveState("");
+    const response = await fetch("/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data.settings)
+    });
+    setSaving(false);
+    if (!response.ok) {
+      setSaveState("Settings save failed.");
+      return;
+    }
+    await refresh();
+    setSaveState("Settings saved.");
+  }
+
+  function updateSelectedCampaign(updater: (campaign: NonNullable<typeof selectedCampaign>) => NonNullable<typeof selectedCampaign>) {
     if (!selectedCampaign) return;
     setData((current) => ({
       ...current,
       campaigns: current.campaigns.map((campaign) =>
-        campaign.id === selectedCampaign.id ? (updater(campaign) as typeof campaign) : campaign
+        campaign.id === selectedCampaign.id ? updater(campaign as NonNullable<typeof selectedCampaign>) : campaign
       )
     }));
   }
+
+  function updateSettings<K extends keyof PlatformPayload["settings"]>(key: K, value: PlatformPayload["settings"][K]) {
+    setData((current) => ({ ...current, settings: { ...current.settings, [key]: value } }));
+  }
+
+  const commandCards = [
+    { label: "Recovered revenue", value: formatCurrency(data.commandCenter.recoveredRevenue), tone: "success" },
+    { label: "At-risk revenue", value: formatCurrency(data.commandCenter.pendingRevenue), tone: "warning" },
+    { label: "Detected failures", value: String(data.commandCenter.detected), tone: "default" },
+    { label: "Recovery rate", value: `${data.commandCenter.recoveryRate}%`, tone: "default" }
+  ];
 
   return (
     <main className="layout">
       <header className="hero" style={{ borderTopColor: data.settings.accentColor }}>
         <div>
           <p className="kicker">Merchant-Controlled Recovery Platform</p>
-          <h1>Operate failed payment recovery like a revenue team, not a one-off automation.</h1>
+          <h1>Control failed-payment recovery like a revenue program.</h1>
           <p className="hero-copy">
-            Design campaigns, define audience rules, control channel timing, and track recovered revenue inside one operational surface.
+            Separate campaign design, operational recovery, and merchant settings so sellers can tune payment recovery without touching code.
           </p>
         </div>
         <div className="hero-side">
@@ -223,69 +250,69 @@ export function App() {
         </div>
       </header>
 
-      <section className="surface-grid top-grid">
-        <section className="card surface">
-          <div className="section-head">
-            <h3>Command Center</h3>
-            <span>Live revenue operations</span>
-          </div>
-          <div className="metrics compact">
-            {commandCards.map((card) => (
-              <article key={card.label} className={`metric metric-${card.tone}`}>
-                <p>{card.label}</p>
-                <h2>{card.value}</h2>
-              </article>
-            ))}
-          </div>
-          <div className="command-strip">
-            <div>
-              <span className="eyebrow">Open recoveries</span>
-              <strong>{data.commandCenter.active}</strong>
-            </div>
-            <div>
-              <span className="eyebrow">Recovered orders</span>
-              <strong>{data.commandCenter.recovered}</strong>
-            </div>
-            <div>
-              <span className="eyebrow">Expired flows</span>
-              <strong>{data.commandCenter.expired}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="card surface">
-          <div className="section-head">
-            <h3>Insights</h3>
-            <span>Coverage and channel pressure</span>
-          </div>
-          <div className="insight-list">
-            <div>
-              <span>Primary campaign</span>
-              <strong>{data.insights.highestPriorityCampaign || "-"}</strong>
-            </div>
-            <div>
-              <span>Email steps</span>
-              <strong>{data.insights.channelMix.email}</strong>
-            </div>
-            <div>
-              <span>SMS steps</span>
-              <strong>{data.insights.channelMix.sms}</strong>
-            </div>
-            <div>
-              <span>Markets covered</span>
-              <strong>{data.insights.countriesCovered.join(", ") || "Global"}</strong>
-            </div>
-          </div>
-        </section>
+      <section className="card surface nav-surface">
+        <div className="campaign-tabs nav-tabs">
+          {[
+            ["overview", "Overview"],
+            ["campaigns", "Campaign Studio"],
+            ["feed", "Recovery Feed"],
+            ["settings", "Settings"]
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              className={`tab ${section === value ? "active" : ""}`}
+              onClick={() => setSection(value as AppSection)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </section>
 
-      <section className="surface-grid main-grid">
+      {section === "overview" ? (
+        <>
+          <section className="surface-grid top-grid">
+            <section className="card surface">
+              <div className="section-head">
+                <h3>Command Center</h3>
+                <span>Live revenue operations</span>
+              </div>
+              <div className="metrics compact">
+                {commandCards.map((card) => (
+                  <article key={card.label} className={`metric metric-${card.tone}`}>
+                    <p>{card.label}</p>
+                    <h2>{card.value}</h2>
+                  </article>
+                ))}
+              </div>
+              <div className="command-strip">
+                <div><span className="eyebrow">Recovered orders</span><strong>{data.commandCenter.recovered}</strong></div>
+                <div><span className="eyebrow">Expired flows</span><strong>{data.commandCenter.expired}</strong></div>
+                <div><span className="eyebrow">Markets covered</span><strong>{data.insights.countriesCovered.join(", ") || "Global"}</strong></div>
+              </div>
+            </section>
+            <section className="card surface">
+              <div className="section-head">
+                <h3>Insights</h3>
+                <span>Current platform shape</span>
+              </div>
+              <div className="insight-list">
+                <div><span>Primary campaign</span><strong>{data.insights.highestPriorityCampaign || "-"}</strong></div>
+                <div><span>Email steps</span><strong>{data.insights.channelMix.email}</strong></div>
+                <div><span>SMS steps</span><strong>{data.insights.channelMix.sms}</strong></div>
+                <div><span>Support route</span><strong>{selectedCampaign?.experience.destination || "checkout"}</strong></div>
+              </div>
+            </section>
+          </section>
+        </>
+      ) : null}
+
+      {section === "campaigns" ? (
         <section className="card surface campaign-studio">
           <div className="section-head">
             <h3>Campaign Studio</h3>
-            <span>Targeting, sequencing, and message design</span>
+            <span>Targeting, landing behavior, incentives, and escalation</span>
           </div>
-
           <div className="campaign-tabs">
             {data.campaigns.map((campaign) => (
               <button
@@ -298,164 +325,76 @@ export function App() {
               </button>
             ))}
           </div>
-
           {selectedCampaign ? (
             <div className="studio-grid">
               <div className="studio-column">
-                <label>
-                  Campaign name
-                  <input
-                    value={selectedCampaign.name}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({ ...campaign, name: event.target.value }))
-                    }
-                  />
+                <label>Campaign name
+                  <input value={selectedCampaign.name} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, name: e.target.value }))} />
                 </label>
-                <label>
-                  Minimum order value
-                  <input
-                    type="number"
-                    min={0}
-                    value={selectedCampaign.rules.minimumOrderValue}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({
-                        ...campaign,
-                        rules: { ...campaign.rules, minimumOrderValue: Number(event.target.value) || 0 }
-                      }))
-                    }
-                  />
+                <label>Minimum order value
+                  <input type="number" min={0} value={selectedCampaign.rules.minimumOrderValue} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, minimumOrderValue: Number(e.target.value) || 0 } }))} />
                 </label>
-                <label>
-                  Customer segment
-                  <select
-                    value={selectedCampaign.rules.customerSegment}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({
-                        ...campaign,
-                        rules: {
-                          ...campaign.rules,
-                          customerSegment: event.target.value as typeof campaign.rules.customerSegment
-                        }
-                      }))
-                    }
-                  >
+                <label>Customer segment
+                  <select value={selectedCampaign.rules.customerSegment} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, customerSegment: e.target.value as typeof c.rules.customerSegment } }))}>
                     <option value="all">All customers</option>
                     <option value="new">New customers</option>
                     <option value="returning">Returning customers</option>
                     <option value="vip">VIP customers</option>
                   </select>
                 </label>
-                <label>
-                  Countries (comma-separated)
-                  <input
-                    value={selectedCampaign.rules.includeCountries.join(",")}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({
-                        ...campaign,
-                        rules: {
-                          ...campaign.rules,
-                          includeCountries: event.target.value
-                            .split(",")
-                            .map((value) => value.trim().toUpperCase())
-                            .filter(Boolean)
-                        }
-                      }))
-                    }
-                  />
+                <label>Countries
+                  <input value={selectedCampaign.rules.includeCountries.join(",")} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, includeCountries: e.target.value.split(",").map((v) => v.trim().toUpperCase()).filter(Boolean) } }))} />
+                </label>
+                <label>Payment methods
+                  <input value={selectedCampaign.rules.paymentMethods.join(",")} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, paymentMethods: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) } }))} />
+                </label>
+              </div>
+              <div className="studio-column">
+                <div className="section-subhead">Retry Experience</div>
+                <label>Retry destination
+                  <select value={selectedCampaign.experience.destination} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, destination: e.target.value as typeof c.experience.destination } }))}>
+                    <option value="checkout">Checkout</option>
+                    <option value="cart">Cart</option>
+                    <option value="support">Direct support</option>
+                  </select>
                 </label>
                 <div className="inline-pair">
-                  <label>
-                    Quiet hours start
-                    <input
-                      type="number"
-                      min={0}
-                      max={23}
-                      value={selectedCampaign.rules.quietHoursStart}
-                      onChange={(event) =>
-                        updateSelectedCampaign((campaign) => ({
-                          ...campaign,
-                          rules: { ...campaign.rules, quietHoursStart: Number(event.target.value) || 0 }
-                        }))
-                      }
-                    />
+                  <label>Discount after attempt
+                    <input type="number" min={0} value={selectedCampaign.experience.discountAfterAttempt ?? 0} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountAfterAttempt: Number(e.target.value) || null } }))} />
                   </label>
-                  <label>
-                    Quiet hours end
-                    <input
-                      type="number"
-                      min={0}
-                      max={23}
-                      value={selectedCampaign.rules.quietHoursEnd}
-                      onChange={(event) =>
-                        updateSelectedCampaign((campaign) => ({
-                          ...campaign,
-                          rules: { ...campaign.rules, quietHoursEnd: Number(event.target.value) || 0 }
-                        }))
-                      }
-                    />
+                  <label>Discount value
+                    <input type="number" min={0} value={selectedCampaign.experience.discountValue} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountValue: Number(e.target.value) || 0 } }))} />
                   </label>
                 </div>
+                <label>Discount type
+                  <select value={selectedCampaign.experience.discountType} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountType: e.target.value as typeof c.experience.discountType } }))}>
+                    <option value="percentage">Percentage</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                </label>
+                <label>Direct contact after attempt
+                  <input type="number" min={0} value={selectedCampaign.experience.directContactAfterAttempt ?? 0} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(e.target.value) || null } }))} />
+                </label>
+                <label className="toggle"><input type="checkbox" checked={selectedCampaign.experience.allowAgentEscalation} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, allowAgentEscalation: e.target.checked } }))} /><span>Allow agent escalation</span></label>
               </div>
-
-              <div className="studio-column">
+              <div className="studio-column full-width">
                 <div className="section-subhead">Sequence Builder</div>
                 <div className="step-list">
                   {selectedCampaign.steps.map((step, index) => (
                     <div key={step.id} className="step-card">
                       <div className="step-index">Step {index + 1}</div>
-                      <div className="step-grid">
-                        <label>
-                          Delay (min)
-                          <input
-                            type="number"
-                            min={1}
-                            value={step.delayMinutes}
-                            onChange={(event) =>
-                              updateSelectedCampaign((campaign) => ({
-                                ...campaign,
-                                steps: campaign.steps.map((candidate) =>
-                                  candidate.id === step.id
-                                    ? { ...candidate, delayMinutes: Number(event.target.value) || 1 }
-                                    : candidate
-                                )
-                              }))
-                            }
-                          />
+                      <div className="step-grid three-up">
+                        <label>Delay (min)
+                          <input type="number" min={1} value={step.delayMinutes} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((x) => x.id === step.id ? { ...x, delayMinutes: Number(e.target.value) || 1 } : x) }))} />
                         </label>
-                        <label>
-                          Channel
-                          <select
-                            value={step.channel}
-                            onChange={(event) =>
-                              updateSelectedCampaign((campaign) => ({
-                                ...campaign,
-                                steps: campaign.steps.map((candidate) =>
-                                  candidate.id === step.id
-                                    ? { ...candidate, channel: event.target.value as CampaignChannel }
-                                    : candidate
-                                )
-                              }))
-                            }
-                          >
+                        <label>Channel
+                          <select value={step.channel} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((x) => x.id === step.id ? { ...x, channel: e.target.value as CampaignChannel } : x) }))}>
                             <option value="email">Email</option>
                             <option value="sms">SMS</option>
                           </select>
                         </label>
-                        <label>
-                          Tone
-                          <select
-                            value={step.tone}
-                            onChange={(event) =>
-                              updateSelectedCampaign((campaign) => ({
-                                ...campaign,
-                                steps: campaign.steps.map((candidate) =>
-                                  candidate.id === step.id
-                                    ? { ...candidate, tone: event.target.value as CampaignTone }
-                                    : candidate
-                                )
-                              }))
-                            }
-                          >
+                        <label>Tone
+                          <select value={step.tone} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((x) => x.id === step.id ? { ...x, tone: e.target.value as CampaignTone } : x) }))}>
                             <option value="steady">Steady</option>
                             <option value="urgent">Urgent</option>
                             <option value="concierge">Concierge</option>
@@ -467,104 +406,93 @@ export function App() {
                   ))}
                 </div>
               </div>
-
               <div className="studio-column full-width">
-                <div className="section-subhead">Creative Control</div>
-                <label>
-                  Email headline
-                  <input
-                    value={selectedCampaign.theme.headline}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({
-                        ...campaign,
-                        theme: { ...campaign.theme, headline: event.target.value }
-                      }))
-                    }
-                  />
+                <div className="section-subhead">Creative</div>
+                <label>Email headline
+                  <input value={selectedCampaign.theme.headline} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, headline: e.target.value } }))} />
                 </label>
-                <label>
-                  Email body
-                  <textarea
-                    value={selectedCampaign.theme.body}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({
-                        ...campaign,
-                        theme: { ...campaign.theme, body: event.target.value }
-                      }))
-                    }
-                  />
+                <label>Email body
+                  <textarea value={selectedCampaign.theme.body} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, body: e.target.value } }))} />
                 </label>
-                <label>
-                  SMS copy
-                  <textarea
-                    value={selectedCampaign.theme.sms}
-                    onChange={(event) =>
-                      updateSelectedCampaign((campaign) => ({
-                        ...campaign,
-                        theme: { ...campaign.theme, sms: event.target.value }
-                      }))
-                    }
-                  />
+                <label>SMS copy
+                  <textarea value={selectedCampaign.theme.sms} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, sms: e.target.value } }))} />
                 </label>
               </div>
             </div>
           ) : null}
-
           <div className="action-row">
-            <button className="save-button" onClick={() => void saveCampaign()} disabled={saving || !selectedCampaign}>
-              {saving ? "Saving..." : "Save campaign"}
-            </button>
-            {selectedCampaign ? (
-              <button className="ghost-button" onClick={() => void activateCampaign(selectedCampaign.id)} disabled={saving}>
-                Make active
-              </button>
-            ) : null}
+            <button className="save-button" onClick={() => void saveCampaign()} disabled={saving || !selectedCampaign}>{saving ? "Saving..." : "Save campaign"}</button>
+            {selectedCampaign ? <button className="ghost-button" onClick={() => void activateCampaign(selectedCampaign.id)} disabled={saving}>Make active</button> : null}
             {saveState ? <span className="status-line">{saveState}</span> : null}
           </div>
         </section>
+      ) : null}
 
-        <section className="stack-column">
-          <section className="card surface">
-            <div className="section-head">
-              <h3>Recovery Feed</h3>
-              <span>Live failed-payment operations</span>
-            </div>
-            <div className="feed-list">
-              {data.sessions.length === 0 ? (
-                <div className="feed-empty">No failed sessions yet.</div>
-              ) : (
-                data.sessions.map((session) => (
-                  <article key={session.id} className="feed-card">
-                    <div>
-                      <strong>{session.checkoutToken}</strong>
-                      <p>{session.email || session.phone || "No reachable contact"}</p>
-                    </div>
-                    <div className="feed-meta">
-                      <span>{formatCurrency(session.amountSubtotal || 0)}</span>
-                      <span>{session.countryCode || "--"}</span>
-                      <span className={`badge badge-${session.state.toLowerCase()}`}>{stateLabel(session.state)}</span>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="card surface">
-            <div className="section-head">
-              <h3>Merchant Controls</h3>
-              <span>Platform defaults</span>
-            </div>
-            <div className="control-list">
-              <div><span>Brand</span><strong>{data.settings.brandName}</strong></div>
-              <div><span>Support</span><strong>{data.settings.supportEmail}</strong></div>
-              <div><span>Email enabled</span><strong>{data.settings.sendEmail ? "Yes" : "No"}</strong></div>
-              <div><span>SMS enabled</span><strong>{data.settings.sendSms ? "Yes" : "No"}</strong></div>
-              <div><span>Default cadence</span><strong>{data.settings.retryMinutes.join(" / ")} min</strong></div>
-            </div>
-          </section>
+      {section === "feed" ? (
+        <section className="card surface">
+          <div className="section-head">
+            <h3>Recovery Feed</h3>
+            <span>Payment method, segment, and queue visibility</span>
+          </div>
+          <div className="feed-list">
+            {data.sessions.length === 0 ? <div className="feed-empty">No failed sessions yet.</div> : data.sessions.map((session) => (
+              <article key={session.id} className="feed-card extended">
+                <div>
+                  <strong>{session.checkoutToken}</strong>
+                  <p>{session.email || session.phone || "No reachable contact"}</p>
+                </div>
+                <div className="feed-meta left">
+                  <span>{formatCurrency(session.amountSubtotal || 0)}</span>
+                  <span>{session.paymentMethod || "Payment method unknown"}</span>
+                  <span>{session.countryCode || "--"} / {session.customerSegment || "all"}</span>
+                </div>
+                <div className="feed-meta">
+                  <span>Attempt {session.attemptCount + 1}</span>
+                  <span className={`badge badge-${session.state.toLowerCase()}`}>{stateLabel(session.state)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
-      </section>
+      ) : null}
+
+      {section === "settings" ? (
+        <section className="card surface settings-page">
+          <div className="section-head">
+            <h3>Merchant Settings</h3>
+            <span>Brand, compliance, and default controls</span>
+          </div>
+          <div className="studio-grid">
+            <div className="studio-column">
+              <label>Brand name
+                <input value={data.settings.brandName} onChange={(e) => updateSettings("brandName", e.target.value)} />
+              </label>
+              <label>Support email
+                <input value={data.settings.supportEmail} onChange={(e) => updateSettings("supportEmail", e.target.value)} />
+              </label>
+              <label>Accent color
+                <div className="color-row"><input type="color" value={data.settings.accentColor} onChange={(e) => updateSettings("accentColor", e.target.value)} /><code>{data.settings.accentColor}</code></div>
+              </label>
+            </div>
+            <div className="studio-column">
+              <label>Default retry cadence (minutes)
+                <input value={data.settings.retryMinutes.join(",")} onChange={(e) => updateSettings("retryMinutes", e.target.value.split(",").map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v > 0))} />
+              </label>
+              <label className="toggle"><input type="checkbox" checked={data.settings.sendEmail} onChange={(e) => updateSettings("sendEmail", e.target.checked)} /><span>Email recovery enabled</span></label>
+              <label className="toggle"><input type="checkbox" checked={data.settings.sendSms} onChange={(e) => updateSettings("sendSms", e.target.checked)} /><span>SMS recovery enabled</span></label>
+              <div className="control-list">
+                <div><span>Current route strategy</span><strong>{selectedCampaign?.experience.destination || "checkout"}</strong></div>
+                <div><span>Support path</span><strong>{data.settings.supportEmail}</strong></div>
+                <div><span>Embedded mode</span><strong>{appConfig?.embedded ? "Yes" : "No"}</strong></div>
+              </div>
+            </div>
+          </div>
+          <div className="action-row single-action">
+            <button className="save-button" onClick={() => void saveSettings()} disabled={saving}>{saving ? "Saving..." : "Save settings"}</button>
+            {saveState ? <span className="status-line">{saveState}</span> : null}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }

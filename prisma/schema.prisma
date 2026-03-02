@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 enum CampaignStatus {
@@ -30,6 +31,17 @@ enum CustomerSegment {
   new
   returning
   vip
+}
+
+enum RecoveryDestination {
+  checkout
+  cart
+  support
+}
+
+enum DiscountType {
+  percentage
+  fixed
 }
 
 enum RecoveryState {
@@ -76,11 +88,18 @@ model RecoveryCampaign {
   minimumOrderValue Float          @default(0)
   customerSegment   CustomerSegment @default(all)
   includeCountries  Json
+  paymentMethods    Json           @default("[]")
   quietHoursStart   Int            @default(22)
   quietHoursEnd     Int            @default(8)
   headline          String
   body              String
   sms               String
+  destination       RecoveryDestination @default(checkout)
+  discountAfterAttempt Int?
+  discountType      DiscountType   @default(percentage)
+  discountValue     Float          @default(0)
+  directContactAfterAttempt Int?
+  allowAgentEscalation Boolean     @default(false)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   shop              Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
@@ -115,6 +134,7 @@ model RecoverySession {
   amountSubtotal  Float?
   countryCode     String?
   customerSegment CustomerSegment?
+  paymentMethod   String?
   state           RecoveryState  @default(LIKELY_FAILED_PAYMENT)
   attemptCount    Int            @default(0)
   failedAt        DateTime?

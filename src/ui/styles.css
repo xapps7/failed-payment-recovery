@@ -137,6 +137,10 @@ textarea {
   padding: 20px;
 }
 
+.nav-surface {
+  padding: 12px;
+}
+
 .section-head {
   display: flex;
   align-items: baseline;
@@ -241,6 +245,10 @@ textarea {
   margin-bottom: 16px;
 }
 
+.nav-tabs .tab {
+  min-width: 140px;
+}
+
 .tab {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.78);
@@ -323,6 +331,10 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.three-up {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .step-card,
 .feed-card {
   border-radius: 18px;
@@ -384,6 +396,10 @@ textarea {
   padding: 14px;
 }
 
+.feed-card.extended {
+  align-items: center;
+}
+
 .feed-card strong {
   display: block;
 }
@@ -400,6 +416,11 @@ textarea {
   text-align: right;
 }
 
+.feed-meta.left {
+  justify-items: start;
+  text-align: left;
+}
+
 .feed-empty {
   padding: 20px;
   border-radius: 16px;
@@ -407,6 +428,14 @@ textarea {
   border: 1px dashed var(--line);
   color: var(--muted);
   text-align: center;
+}
+
+.settings-page .studio-grid {
+  align-items: start;
+}
+
+.single-action {
+  grid-template-columns: auto 1fr;
 }
 
 .badge {
@@ -468,6 +497,10 @@ textarea {
   .inline-pair,
   .step-grid,
   .action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .three-up {
     grid-template-columns: 1fr;
   }
 

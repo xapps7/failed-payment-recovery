@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 export type RecoveryChannel = "email" | "sms";
 export type CustomerSegment = "all" | "new" | "returning" | "vip";
 export type CampaignTone = "steady" | "urgent" | "concierge" | "rescue";
+export type RecoveryDestination = "checkout" | "cart" | "support";
+export type DiscountType = "percentage" | "fixed";
 
 export interface CampaignStep {
   id: string;
@@ -18,6 +20,7 @@ export interface CampaignRuleSet {
   minimumOrderValue: number;
   customerSegment: CustomerSegment;
   includeCountries: string[];
+  paymentMethods: string[];
   quietHoursStart: number;
   quietHoursEnd: number;
 }
@@ -26,6 +29,15 @@ export interface CampaignTheme {
   headline: string;
   body: string;
   sms: string;
+}
+
+export interface CampaignExperience {
+  destination: RecoveryDestination;
+  discountAfterAttempt: number | null;
+  discountType: DiscountType;
+  discountValue: number;
+  directContactAfterAttempt: number | null;
+  allowAgentEscalation: boolean;
 }
 
 export interface RecoveryCampaign {
@@ -37,6 +49,7 @@ export interface RecoveryCampaign {
   rules: CampaignRuleSet;
   steps: CampaignStep[];
   theme: CampaignTheme;
+  experience: CampaignExperience;
 }
 
 interface CampaignDb {
@@ -58,6 +71,7 @@ function createDefaultCampaigns(): RecoveryCampaign[] {
         minimumOrderValue: 0,
         customerSegment: "all",
         includeCountries: [],
+        paymentMethods: [],
         quietHoursStart: 22,
         quietHoursEnd: 8
       },
@@ -70,6 +84,14 @@ function createDefaultCampaigns(): RecoveryCampaign[] {
         headline: "Complete your purchase before your cart expires.",
         body: "Your payment did not go through. Use the secure link below to resume checkout and finish your order.",
         sms: "Your payment did not go through. Resume checkout here: {{retryUrl}}"
+      },
+      experience: {
+        destination: "checkout",
+        discountAfterAttempt: 2,
+        discountType: "percentage",
+        discountValue: 10,
+        directContactAfterAttempt: 3,
+        allowAgentEscalation: true
       }
     },
     {
@@ -82,6 +104,7 @@ function createDefaultCampaigns(): RecoveryCampaign[] {
         minimumOrderValue: 250,
         customerSegment: "vip",
         includeCountries: ["US", "CA", "GB"],
+        paymentMethods: ["credit_card", "shop_pay"],
         quietHoursStart: 21,
         quietHoursEnd: 9
       },
@@ -93,6 +116,14 @@ function createDefaultCampaigns(): RecoveryCampaign[] {
         headline: "We saved your order so you can finish in one click.",
         body: "A quick payment issue interrupted checkout. Use your secure link and we will restore your order immediately.",
         sms: "We saved your order. Resume securely: {{retryUrl}}"
+      },
+      experience: {
+        destination: "support",
+        discountAfterAttempt: 1,
+        discountType: "fixed",
+        discountValue: 15,
+        directContactAfterAttempt: 2,
+        allowAgentEscalation: true
       }
     }
   ];

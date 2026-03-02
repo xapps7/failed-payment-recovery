@@ -4,37 +4,67 @@ import type { AppSettings } from "./settingsStore";
 import { signRecoveryLink } from "./signedLink";
 import { appBaseUrl, env } from "../config/env";
 import type { RecoveryCampaign } from "./campaignStore";
+import type { DeliveryResult, MessageSender } from "../workers/recoveryWorker";
 
-export interface Notifier {
-  sendEmail(session: RecoverySession): Promise<void>;
-  sendSms(session: RecoverySession): Promise<void>;
+function discountLabel(campaign: RecoveryCampaign, attemptNumber: number): string | null {
+  const trigger = campaign.experience.discountAfterAttempt;
+  if (!trigger || attemptNumber < trigger) return null;
+  if (campaign.experience.discountType === "fixed") {
+    return `$${campaign.experience.discountValue} off`;
+  }
+  return `${campaign.experience.discountValue}% off`;
 }
 
-function buildRetryUrl(session: RecoverySession): string {
+function buildRetryUrl(session: RecoverySession, campaign: RecoveryCampaign, settings: AppSettings): string {
   const token = signRecoveryLink(
     {
       checkoutToken: session.checkoutToken,
       shopDomain: session.shopDomain,
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString()
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(),
+      destination: campaign.experience.destination,
+      supportEmail: settings.supportEmail
     },
     env.RECOVERY_LINK_SECRET || "dev-recovery-link-secret"
   );
   return `${appBaseUrl()}/recover/${token}`;
 }
 
+function fallback(provider: string, channel: "email" | "sms", target: string, retryUrl: string): DeliveryResult {
+  console.log(`[${channel}:fallback:${provider}] ${target} -> ${retryUrl}`);
+  return {
+    channel,
+    provider,
+    status: "fallback_logged",
+    sent: true,
+    payload: { target, retryUrl }
+  };
+}
+
+export interface Notifier extends MessageSender {}
+
 export class ProviderNotifier implements Notifier {
   constructor(
-    private readonly settings: () => AppSettings,
-    private readonly activeCampaign: () => RecoveryCampaign
+    private readonly settings: () => Promise<AppSettings> | AppSettings,
+    private readonly activeCampaign: () => Promise<RecoveryCampaign> | RecoveryCampaign
   ) {}
 
-  async sendEmail(session: RecoverySession): Promise<void> {
-    const settings = this.settings();
-    const campaign = this.activeCampaign();
-    if (!settings.sendEmail || !session.email) return;
+  async sendEmail(session: RecoverySession): Promise<DeliveryResult> {
+    const settings = await Promise.resolve(this.settings());
+    const campaign = await Promise.resolve(this.activeCampaign());
+    if (!settings.sendEmail || !session.email) {
+      return { channel: "email", provider: "sendgrid", status: "skipped", sent: false };
+    }
 
-    const retryUrl = buildRetryUrl(session);
+    const retryUrl = buildRetryUrl(session, campaign, settings);
     const activeStep = campaign.steps[Math.min(session.attemptCount, campaign.steps.length - 1)];
+    const incentive = discountLabel(campaign, session.attemptCount + 1);
+    const supportNote =
+      campaign.experience.allowAgentEscalation &&
+      campaign.experience.directContactAfterAttempt &&
+      session.attemptCount + 1 >= campaign.experience.directContactAfterAttempt
+        ? `Reply to this email or contact ${settings.supportEmail} for direct help.`
+        : undefined;
+
     if (env.SENDGRID_API_KEY && env.SENDGRID_FROM_EMAIL) {
       const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
         method: "POST",
@@ -53,7 +83,9 @@ export class ProviderNotifier implements Notifier {
               retryUrl,
               headline: campaign.theme.headline,
               body: campaign.theme.body,
-              tone: activeStep?.tone
+              tone: activeStep?.tone,
+              incentive,
+              supportNote
             })
           }]
         })
@@ -61,19 +93,35 @@ export class ProviderNotifier implements Notifier {
       if (!response.ok) {
         throw new Error(`SendGrid send failed (${response.status})`);
       }
-      return;
+      return {
+        channel: "email",
+        provider: "sendgrid",
+        status: "sent",
+        sent: true,
+        payload: { email: session.email, retryUrl, incentive }
+      };
     }
 
-    console.log(`[email:fallback] ${session.email} -> ${retryUrl}`);
+    return fallback("sendgrid", "email", session.email, retryUrl);
   }
 
-  async sendSms(session: RecoverySession): Promise<void> {
-    const settings = this.settings();
-    const campaign = this.activeCampaign();
-    if (!settings.sendSms || !session.phone) return;
+  async sendSms(session: RecoverySession): Promise<DeliveryResult> {
+    const settings = await Promise.resolve(this.settings());
+    const campaign = await Promise.resolve(this.activeCampaign());
+    if (!settings.sendSms || !session.phone) {
+      return { channel: "sms", provider: "twilio", status: "skipped", sent: false };
+    }
 
-    const retryUrl = buildRetryUrl(session);
+    const retryUrl = buildRetryUrl(session, campaign, settings);
     const activeStep = campaign.steps[Math.min(session.attemptCount, campaign.steps.length - 1)];
+    const incentive = discountLabel(campaign, session.attemptCount + 1);
+    const supportNote =
+      campaign.experience.allowAgentEscalation &&
+      campaign.experience.directContactAfterAttempt &&
+      session.attemptCount + 1 >= campaign.experience.directContactAfterAttempt
+        ? `Need help? ${settings.supportEmail}`
+        : undefined;
+
     if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_FROM_NUMBER) {
       const body = new URLSearchParams({
         To: session.phone,
@@ -82,7 +130,9 @@ export class ProviderNotifier implements Notifier {
           shopName: settings.brandName,
           retryUrl,
           smsBody: campaign.theme.sms,
-          tone: activeStep?.tone
+          tone: activeStep?.tone,
+          incentive,
+          supportNote
         })
       });
 
@@ -101,9 +151,15 @@ export class ProviderNotifier implements Notifier {
       if (!response.ok) {
         throw new Error(`Twilio send failed (${response.status})`);
       }
-      return;
+      return {
+        channel: "sms",
+        provider: "twilio",
+        status: "sent",
+        sent: true,
+        payload: { phone: session.phone, retryUrl, incentive }
+      };
     }
 
-    console.log(`[sms:fallback] ${session.phone} -> ${retryUrl}`);
+    return fallback("twilio", "sms", session.phone, retryUrl);
   }
 }

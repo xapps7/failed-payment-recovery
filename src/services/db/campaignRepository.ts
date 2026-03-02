@@ -25,6 +25,7 @@ function normalizeCampaign(campaign: CampaignWithSteps): RecoveryCampaign {
       minimumOrderValue: campaign.minimumOrderValue,
       customerSegment: campaign.customerSegment,
       includeCountries: Array.isArray(campaign.includeCountries) ? (campaign.includeCountries as string[]) : [],
+      paymentMethods: Array.isArray(campaign.paymentMethods) ? (campaign.paymentMethods as string[]) : [],
       quietHoursStart: campaign.quietHoursStart,
       quietHoursEnd: campaign.quietHoursEnd
     },
@@ -41,6 +42,14 @@ function normalizeCampaign(campaign: CampaignWithSteps): RecoveryCampaign {
       headline: campaign.headline,
       body: campaign.body,
       sms: campaign.sms
+    },
+    experience: {
+      destination: campaign.destination,
+      discountAfterAttempt: campaign.discountAfterAttempt,
+      discountType: campaign.discountType,
+      discountValue: campaign.discountValue,
+      directContactAfterAttempt: campaign.directContactAfterAttempt,
+      allowAgentEscalation: campaign.allowAgentEscalation
     }
   };
 }
@@ -76,11 +85,18 @@ async function seedFromFile(prisma: NonNullable<ReturnType<typeof getPrisma>>): 
         minimumOrderValue: campaign.rules.minimumOrderValue,
         customerSegment: campaign.rules.customerSegment,
         includeCountries: campaign.rules.includeCountries,
+        paymentMethods: campaign.rules.paymentMethods,
         quietHoursStart: campaign.rules.quietHoursStart,
         quietHoursEnd: campaign.rules.quietHoursEnd,
         headline: campaign.theme.headline,
         body: campaign.theme.body,
         sms: campaign.theme.sms,
+        destination: campaign.experience.destination,
+        discountAfterAttempt: campaign.experience.discountAfterAttempt,
+        discountType: campaign.experience.discountType,
+        discountValue: campaign.experience.discountValue,
+        directContactAfterAttempt: campaign.experience.directContactAfterAttempt,
+        allowAgentEscalation: campaign.experience.allowAgentEscalation,
         steps: {
           create: campaign.steps.map((step, index) => ({
             id: step.id,
@@ -133,11 +149,18 @@ export async function saveRecoveryCampaign(input: RecoveryCampaign): Promise<Rec
       minimumOrderValue: input.rules.minimumOrderValue,
       customerSegment: input.rules.customerSegment,
       includeCountries: input.rules.includeCountries,
+      paymentMethods: input.rules.paymentMethods,
       quietHoursStart: input.rules.quietHoursStart,
       quietHoursEnd: input.rules.quietHoursEnd,
       headline: input.theme.headline,
       body: input.theme.body,
       sms: input.theme.sms,
+      destination: input.experience.destination,
+      discountAfterAttempt: input.experience.discountAfterAttempt,
+      discountType: input.experience.discountType,
+      discountValue: input.experience.discountValue,
+      directContactAfterAttempt: input.experience.directContactAfterAttempt,
+      allowAgentEscalation: input.experience.allowAgentEscalation,
       steps: {
         deleteMany: {},
         create: input.steps.map((step, index) => ({
@@ -160,11 +183,18 @@ export async function saveRecoveryCampaign(input: RecoveryCampaign): Promise<Rec
       minimumOrderValue: input.rules.minimumOrderValue,
       customerSegment: input.rules.customerSegment,
       includeCountries: input.rules.includeCountries,
+      paymentMethods: input.rules.paymentMethods,
       quietHoursStart: input.rules.quietHoursStart,
       quietHoursEnd: input.rules.quietHoursEnd,
       headline: input.theme.headline,
       body: input.theme.body,
       sms: input.theme.sms,
+      destination: input.experience.destination,
+      discountAfterAttempt: input.experience.discountAfterAttempt,
+      discountType: input.experience.discountType,
+      discountValue: input.experience.discountValue,
+      directContactAfterAttempt: input.experience.directContactAfterAttempt,
+      allowAgentEscalation: input.experience.allowAgentEscalation,
       steps: {
         create: input.steps.map((step, index) => ({
           id: step.id,

@@ -13,12 +13,14 @@ export interface CheckoutSignal {
   amountSubtotal?: number;
   countryCode?: string;
   customerSegment?: "all" | "new" | "returning" | "vip";
+  paymentMethod?: string;
   paymentInfoSubmittedAt?: string;
   checkoutCompletedAt?: string;
 }
 
 export interface RecoverySession {
   id: string;
+  campaignId?: string;
   checkoutToken: string;
   shopDomain: string;
   email?: string;
@@ -26,6 +28,7 @@ export interface RecoverySession {
   amountSubtotal?: number;
   countryCode?: string;
   customerSegment?: "all" | "new" | "returning" | "vip";
+  paymentMethod?: string;
   state: RecoveryState;
   attemptCount: number;
   failedAt?: string;

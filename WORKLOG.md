@@ -35,3 +35,10 @@
 - Introduced database-backed repositories for shops, settings, and campaigns with file-store fallback/write-through.
 - Added `DATABASE_URL` support and Prisma scripts for future migration.
 - Verified server/client types with `npx tsc --noEmit`.
+- Implemented async DB-aware recovery session store with delivery-attempt persistence hooks.
+- Added payment-method capture, retry destination control, discount escalation, and direct-contact escalation to campaigns.
+- Split the UI into Overview, Campaign Studio, Recovery Feed, and Settings surfaces.
+- Added `DIRECT_DATABASE_URL` support because Neon pooled URLs are not suitable for schema changes.
+- Held push intentionally until Neon schema can be updated with a direct connection string.
+- Neon schema was updated manually to support payment-method targeting, retry destinations, and escalation fields.
+- Final validation passed for the recovery persistence and settings-surface upgrade.
