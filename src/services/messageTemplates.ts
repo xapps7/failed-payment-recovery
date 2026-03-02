@@ -1,6 +1,7 @@
 export interface MessageInput {
   shopName: string;
   retryUrl: string;
+  openTrackingUrl?: string;
   headline?: string;
   body?: string;
   smsBody?: string;
@@ -23,7 +24,8 @@ export function emailHtml(input: MessageInput): string {
     `<p>${input.body || "Your payment did not go through. You can complete checkout securely using the link below."}</p>`,
     input.incentive ? `<p><strong>Recovery offer:</strong> ${input.incentive}</p>` : "",
     input.supportNote ? `<p>${input.supportNote}</p>` : "",
-    `<p><a href="${input.retryUrl}">Complete your purchase</a></p>`
+    `<p><a href="${input.retryUrl}">Complete your purchase</a></p>`,
+    input.openTrackingUrl ? `<img src="${input.openTrackingUrl}" alt="" width="1" height="1" style="display:none;" />` : ""
   ].filter(Boolean);
   return lines.join("\n");
 }

@@ -21,6 +21,7 @@ export interface DeliveryAttemptInput {
   channel: "email" | "sms";
   provider: string;
   status: string;
+  providerMessageId?: string;
   payload?: Record<string, unknown>;
 }
 
@@ -293,6 +294,7 @@ export class InMemoryRecoveryStore implements RecoveryStore {
         channel: input.channel,
         provider: input.provider,
         status: input.status,
+        providerMessageId: input.providerMessageId,
         payload: (input.payload || undefined) as Prisma.InputJsonValue | undefined
       }
     });

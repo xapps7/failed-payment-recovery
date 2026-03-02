@@ -89,6 +89,7 @@ export class RecoveryRuntime {
           channel: delivery.channel,
           provider: delivery.provider,
           status: delivery.status,
+          providerMessageId: delivery.providerMessageId,
           payload: delivery.payload
         });
       }

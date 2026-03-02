@@ -8,6 +8,7 @@ export interface DeliveryResult {
   provider: string;
   status: string;
   sent: boolean;
+  providerMessageId?: string;
   payload?: Record<string, unknown>;
 }
 

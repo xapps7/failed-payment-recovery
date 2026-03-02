@@ -10,18 +10,16 @@ import { getOrCreateRecoveryOffer } from "./recoveryOfferStore";
 function discountLabel(campaign: RecoveryCampaign, attemptNumber: number): string | null {
   const trigger = campaign.experience.discountAfterAttempt;
   if (!trigger || attemptNumber < trigger) return null;
-  if (campaign.experience.discountType === "fixed") {
-    return `$${campaign.experience.discountValue} off`;
-  }
+  if (campaign.experience.discountType === "fixed") return `$${campaign.experience.discountValue} off`;
   return `${campaign.experience.discountValue}% off`;
 }
 
 function paymentMethodHint(paymentMethod?: string): string | undefined {
   if (!paymentMethod) return undefined;
   const normalized = paymentMethod.toLowerCase();
-  if (normalized.includes("shop")) return "Try re-authorizing with Shop Pay or switch to card if it failed again.";
-  if (normalized.includes("paypal")) return "If PayPal failed, you can retry PayPal or complete checkout with card.";
-  if (normalized.includes("card")) return "If your card was declined, you can retry the same card or use another payment method.";
+  if (normalized.includes("shop")) return "Try re-authorizing with Shop Pay or switch to card if it fails again.";
+  if (normalized.includes("paypal")) return "If PayPal failed, retry PayPal or complete checkout with card.";
+  if (normalized.includes("card")) return "If your card was declined, retry the same card or choose another payment method.";
   return `You can retry using ${paymentMethod} or choose another payment method at checkout.`;
 }
 
@@ -35,6 +33,7 @@ function buildRetryUrl(session: RecoverySession, campaign: RecoveryCampaign, set
         value: campaign.experience.discountValue
       })
     : null;
+
   const token = signRecoveryLink(
     {
       checkoutToken: session.checkoutToken,
@@ -46,7 +45,15 @@ function buildRetryUrl(session: RecoverySession, campaign: RecoveryCampaign, set
     },
     env.RECOVERY_LINK_SECRET || "dev-recovery-link-secret"
   );
+
   return `${appBaseUrl()}/recover/${token}`;
+}
+
+function buildOpenTrackingUrl(session: RecoverySession): string {
+  const url = new URL(`${appBaseUrl()}/track/open.gif`);
+  url.searchParams.set("checkoutToken", session.checkoutToken);
+  url.searchParams.set("shopDomain", session.shopDomain);
+  return url.toString();
 }
 
 function fallback(provider: string, channel: "email" | "sms", target: string, retryUrl: string): DeliveryResult {
@@ -76,6 +83,7 @@ export class ProviderNotifier implements Notifier {
     }
 
     const retryUrl = buildRetryUrl(session, campaign, settings);
+    const openTrackingUrl = buildOpenTrackingUrl(session);
     const activeStep = campaign.steps[Math.min(session.attemptCount, campaign.steps.length - 1)];
     const incentive = discountLabel(campaign, session.attemptCount + 1);
     const paymentHint = paymentMethodHint(session.paymentMethod);
@@ -95,6 +103,10 @@ export class ProviderNotifier implements Notifier {
         },
         body: JSON.stringify({
           personalizations: [{ to: [{ email: session.email }] }],
+          custom_args: {
+            checkoutToken: session.checkoutToken,
+            shopDomain: session.shopDomain
+          },
           from: { email: env.SENDGRID_FROM_EMAIL, name: settings.brandName },
           subject: campaign.theme.headline,
           content: [{
@@ -102,6 +114,7 @@ export class ProviderNotifier implements Notifier {
             value: emailHtml({
               shopName: settings.brandName,
               retryUrl,
+              openTrackingUrl,
               headline: campaign.theme.headline,
               body: [campaign.theme.body, paymentHint].filter(Boolean).join(" "),
               tone: activeStep?.tone,
@@ -119,6 +132,7 @@ export class ProviderNotifier implements Notifier {
         provider: "sendgrid",
         status: "sent",
         sent: true,
+        providerMessageId: response.headers.get("x-message-id") || undefined,
         payload: { email: session.email, retryUrl, incentive }
       };
     }
@@ -148,6 +162,7 @@ export class ProviderNotifier implements Notifier {
       const body = new URLSearchParams({
         To: session.phone,
         From: env.TWILIO_FROM_NUMBER,
+        StatusCallback: `${appBaseUrl()}/webhooks/twilio/status?checkoutToken=${encodeURIComponent(session.checkoutToken)}&shopDomain=${encodeURIComponent(session.shopDomain)}`,
         Body: smsText({
           shopName: settings.brandName,
           retryUrl,
@@ -173,11 +188,13 @@ export class ProviderNotifier implements Notifier {
       if (!response.ok) {
         throw new Error(`Twilio send failed (${response.status})`);
       }
+      const responseJson = (await response.json()) as { sid?: string };
       return {
         channel: "sms",
         provider: "twilio",
         status: "sent",
         sent: true,
+        providerMessageId: responseJson.sid,
         payload: { phone: session.phone, retryUrl, incentive }
       };
     }

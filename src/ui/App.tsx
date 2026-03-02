@@ -62,6 +62,9 @@ type PlatformPayload = {
   }>;
   sessions: Array<{
     id: string;
+    campaignId?: string;
+    campaignName: string;
+    shopDomain: string;
     checkoutToken: string;
     email?: string;
     phone?: string;
@@ -81,6 +84,17 @@ type PlatformPayload = {
       code: string;
       type: "percentage" | "fixed";
       value: number;
+    };
+    engagement?: {
+      opens: number;
+      clicks: number;
+      lastOpenedAt?: string;
+      lastClickedAt?: string;
+    };
+    deliveryStatus?: {
+      emailStatus?: string;
+      smsStatus?: string;
+      updatedAt: string;
     };
   }>;
   insights: {
@@ -140,6 +154,13 @@ function stateLabel(state: SessionState): string {
     default:
       return "Pending";
   }
+}
+
+function deliveryLabel(status?: string): string {
+  if (!status) return "Not sent";
+  return status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function App() {
@@ -220,22 +241,26 @@ export function App() {
     setSaveState("Settings saved.");
   }
 
-  async function runFeedAction(checkoutToken: string, action: "mark_contacted" | "escalate_support") {
+  async function runFeedAction(
+    checkoutToken: string,
+    shopDomain: string,
+    action: "mark_contacted" | "escalate_support"
+  ) {
     const response = await fetch(`/sessions/${checkoutToken}/manual-outreach`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action })
+      body: JSON.stringify({ action, shopDomain })
     });
     if (response.ok) {
       await refresh();
     }
   }
 
-  async function generateOffer(checkoutToken: string) {
+  async function generateOffer(checkoutToken: string, shopDomain: string) {
     const response = await fetch(`/sessions/${checkoutToken}/generate-offer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})
+      body: JSON.stringify({ shopDomain })
     });
     if (response.ok) {
       await refresh();
@@ -468,33 +493,61 @@ export function App() {
         <section className="card surface">
           <div className="section-head">
             <h3>Recovery Feed</h3>
-            <span>Payment method, segment, and queue visibility</span>
+            <span>Grid-first ops view with campaign, delivery, and engagement flags</span>
           </div>
-          <div className="feed-list">
-            {data.sessions.length === 0 ? <div className="feed-empty">No failed sessions yet.</div> : data.sessions.map((session) => (
-              <article key={session.id} className="feed-card extended">
-                <div>
-                  <strong>{session.checkoutToken}</strong>
-                  <p>{session.email || session.phone || "No reachable contact"}</p>
-                  {session.offer ? <p className="micro-copy">Offer: {session.offer.code}</p> : null}
-                </div>
-                <div className="feed-meta left">
-                  <span>{formatCurrency(session.amountSubtotal || 0)}</span>
-                  <span>{session.paymentMethod || "Payment method unknown"}</span>
-                  <span>{session.countryCode || "--"} / {session.customerSegment || "all"}</span>
-                </div>
-                <div className="feed-meta">
-                  <span>Attempt {session.attemptCount + 1}</span>
-                  <span className={`badge badge-${session.state.toLowerCase()}`}>{stateLabel(session.state)}</span>
-                </div>
-                <div className="feed-actions">
-                  <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, "mark_contacted")}>Mark contacted</button>
-                  <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, "escalate_support")}>Escalate</button>
-                  <button className="ghost-button" onClick={() => void generateOffer(session.checkoutToken)}>Generate offer</button>
-                </div>
-              </article>
-            ))}
-          </div>
+          {data.sessions.length === 0 ? <div className="feed-empty">No failed sessions yet.</div> : (
+            <div className="feed-grid-shell">
+              <div className="feed-grid feed-grid-head">
+                <span>Order</span>
+                <span>Campaign</span>
+                <span>Payment</span>
+                <span>Delivery</span>
+                <span>Engagement</span>
+                <span>State</span>
+                <span>Action</span>
+              </div>
+              <div className="feed-grid-body">
+                {data.sessions.map((session) => (
+                  <article key={session.id} className="feed-grid feed-row">
+                    <div className="feed-cell order-cell">
+                      <strong>{session.checkoutToken}</strong>
+                      <p>{session.email || session.phone || "No reachable contact"}</p>
+                      <p className="micro-copy">
+                        {formatCurrency(session.amountSubtotal || 0)} {session.countryCode || "--"} / {session.customerSegment || "all"}
+                      </p>
+                    </div>
+                    <div className="feed-cell">
+                      <strong>{session.campaignName}</strong>
+                      <p className="micro-copy">{session.offer ? `Offer ${session.offer.code}` : "No offer yet"}</p>
+                    </div>
+                    <div className="feed-cell">
+                      <strong>{session.paymentMethod || "Unknown"}</strong>
+                      <p className="micro-copy">Attempt {session.attemptCount + 1}</p>
+                    </div>
+                    <div className="feed-cell">
+                      <span className="flag">{`Email: ${deliveryLabel(session.deliveryStatus?.emailStatus)}`}</span>
+                      <span className="flag">{`SMS: ${deliveryLabel(session.deliveryStatus?.smsStatus)}`}</span>
+                    </div>
+                    <div className="feed-cell">
+                      <span className={`flag ${session.engagement?.opens ? "flag-positive" : ""}`}>Opened {session.engagement?.opens || 0}</span>
+                      <span className={`flag ${session.engagement?.clicks ? "flag-positive" : ""}`}>Clicked {session.engagement?.clicks || 0}</span>
+                    </div>
+                    <div className="feed-cell">
+                      <span className={`badge badge-${session.state.toLowerCase()}`}>{stateLabel(session.state)}</span>
+                      <p className="micro-copy">
+                        {session.operatorAction?.lastAction ? `Last: ${session.operatorAction.lastAction.replace("_", " ")}` : "No manual action"}
+                      </p>
+                    </div>
+                    <div className="feed-actions stacked">
+                      <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, session.shopDomain, "mark_contacted")}>Mark contacted</button>
+                      <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, session.shopDomain, "escalate_support")}>Escalate</button>
+                      <button className="ghost-button" onClick={() => void generateOffer(session.checkoutToken, session.shopDomain)}>Generate offer</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="section-note">Retry links now resolve to checkout, cart, or support based on campaign policy and stored recovery payload.</div>
         </section>
       ) : null}

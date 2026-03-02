@@ -21,10 +21,14 @@ import { getRecoveryPayload, saveRecoveryPayload } from "../services/recoveryPay
 import { getRecoveryOffer, getOrCreateRecoveryOffer } from "../services/recoveryOfferStore";
 import { getOperatorAction, saveOperatorAction } from "../services/operatorActionStore";
 import { recordProviderEvent } from "../services/providerEventStore";
+import { getEngagement, recordClick, recordOpen } from "../services/engagementStore";
+import { getDeliveryStatus, saveDeliveryStatus } from "../services/deliveryStatusStore";
+import { createShopifyDiscountCode } from "../services/shopifyDiscountService";
 
 const app = express();
 app.set("trust proxy", true);
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const distDir = path.resolve(process.cwd(), "dist");
 if (fs.existsSync(distDir)) {
@@ -39,6 +43,10 @@ const runtime = new RecoveryRuntime(
   () => getCurrentCampaign()
 );
 const issuedOAuthStates = new Map<string, number>();
+const TRACKING_PIXEL_GIF = Buffer.from(
+  "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
+  "base64"
+);
 
 const paymentInfoSchema = z.object({
   checkoutToken: z.string().min(1),
@@ -184,6 +192,8 @@ app.get("/recover/:token", (req, res) => {
     return res.status(401).send("Recovery link is invalid or expired.");
   }
 
+  recordClick(payload.checkoutToken, payload.shopDomain);
+
   if (payload.destination === "support" && payload.supportEmail) {
     const supportLink = `mailto:${payload.supportEmail}?subject=${encodeURIComponent("Payment recovery help")}&body=${encodeURIComponent(`Please help me complete checkout for ${payload.checkoutToken}.`)}`;
     return res.status(200).type("html").send(`<!doctype html><html><head><title>Need Help?</title><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;padding:24px;background:#f6f6f7;color:#202223;"><main style="max-width:560px;margin:32px auto;background:#fff;padding:24px;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.06);"><p style="margin:0 0 8px;color:#6d7175;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Retryly Support Assist</p><h1 style="margin:0 0 12px;font-size:28px;">A specialist can help complete this order.</h1><p style="margin:0 0 12px;line-height:1.6;">Your payment needs manual help. Contact the merchant directly and they can guide you through the fastest completion path.</p>${payload.discountText ? `<p style="margin:0 0 12px;line-height:1.6;"><strong>Offer available:</strong> ${payload.discountText}</p>` : ""}<p><a href="${supportLink}" style="display:inline-block;background:#008060;color:#fff;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:600;">Contact support</a></p></main></body></html>`);
@@ -287,15 +297,32 @@ app.get("/auth/shops", async (_req, res) => {
   return res.status(200).json({ shops: await listShopTokens() });
 });
 
+app.get("/track/open.gif", (req, res) => {
+  const checkoutToken = typeof req.query.checkoutToken === "string" ? req.query.checkoutToken : "";
+  const shopDomain = typeof req.query.shopDomain === "string" ? req.query.shopDomain : "";
+  if (checkoutToken && shopDomain) {
+    recordOpen(checkoutToken, shopDomain);
+  }
+
+  res.setHeader("Content-Type", "image/gif");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  return res.status(200).send(TRACKING_PIXEL_GIF);
+});
+
 app.get("/platform", async (_req, res) => {
   const metrics = await runtime.metrics();
   const settings = await readAppSettings();
   const campaigns = await listRecoveryCampaigns();
   const sessions = await runtime.recent(12);
+  const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const activeCampaign = await getCurrentCampaign();
   const enrichedSessions = sessions.map((session) => ({
     ...session,
+    campaignName: session.campaignId ? (campaignById.get(session.campaignId)?.name || activeCampaign.name) : activeCampaign.name,
     operatorAction: getOperatorAction(session.checkoutToken, session.shopDomain),
-    offer: getRecoveryOffer(session.checkoutToken, session.shopDomain)
+    offer: getRecoveryOffer(session.checkoutToken, session.shopDomain),
+    engagement: getEngagement(session.checkoutToken, session.shopDomain),
+    deliveryStatus: getDeliveryStatus(session.checkoutToken, session.shopDomain)
   }));
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
@@ -317,7 +344,7 @@ app.get("/platform", async (_req, res) => {
     campaigns,
     sessions: enrichedSessions,
     insights: {
-      activeCampaign: (await getCurrentCampaign()).name,
+      activeCampaign: activeCampaign.name,
       channelMix,
       highestPriorityCampaign: campaigns[0]?.name || null,
       countriesCovered: Array.from(
@@ -434,16 +461,44 @@ app.post("/sessions/:checkoutToken/generate-offer", async (req, res) => {
     type: campaign.experience.discountType,
     value: campaign.experience.discountValue
   });
-  return res.status(200).json(offer);
+  const shopifyDiscount = await createShopifyDiscountCode(shopDomain, offer).catch((error) => ({
+    created: false,
+    reason: error instanceof Error ? error.message : "Unknown error"
+  }));
+  return res.status(200).json({ offer, shopifyDiscount });
 });
 
 app.post("/webhooks/sendgrid/events", (req, res) => {
   const event = recordProviderEvent("sendgrid", req.body);
+  const payloads = Array.isArray(req.body) ? req.body : [req.body];
+  for (const payload of payloads) {
+    const eventName = typeof payload?.event === "string" ? payload.event.toLowerCase() : "received";
+    const checkoutToken = typeof payload?.custom_args?.checkoutToken === "string" ? payload.custom_args.checkoutToken : "";
+    const shopDomain = typeof payload?.custom_args?.shopDomain === "string" ? payload.custom_args.shopDomain : "";
+    if (!checkoutToken || !shopDomain) continue;
+    saveDeliveryStatus({
+      checkoutToken,
+      shopDomain,
+      channel: "email",
+      status: eventName
+    });
+  }
   return res.status(202).json({ ok: true, receivedAt: event.receivedAt });
 });
 
 app.post("/webhooks/twilio/status", (req, res) => {
   const event = recordProviderEvent("twilio", req.body);
+  const checkoutToken = typeof req.query.checkoutToken === "string" ? req.query.checkoutToken : "";
+  const shopDomain = typeof req.query.shopDomain === "string" ? req.query.shopDomain : "";
+  const status = typeof req.body?.MessageStatus === "string" ? req.body.MessageStatus.toLowerCase() : "received";
+  if (checkoutToken && shopDomain) {
+    saveDeliveryStatus({
+      checkoutToken,
+      shopDomain,
+      channel: "sms",
+      status
+    });
+  }
   return res.status(202).json({ ok: true, receivedAt: event.receivedAt });
 });
 
