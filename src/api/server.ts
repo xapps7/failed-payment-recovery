@@ -72,6 +72,13 @@ const paymentInfoSchema = z.object({
   checkoutCompletedAt: z.string().datetime().optional()
 });
 
+const webPixelSchema = z.object({
+  eventName: z.enum(["payment_info_submitted", "checkout_completed"]),
+  payload: paymentInfoSchema.extend({
+    orderId: z.string().optional()
+  })
+});
+
 const recoveredSchema = z.object({
   checkoutToken: z.string().min(1),
   orderId: z.string().min(1)
@@ -415,6 +422,33 @@ app.post("/events/payment-info-submitted", async (req, res) => {
   });
   await runtime.ingestSignal(parsed.data, new Date().toISOString());
   return res.status(202).json({ ok: true });
+});
+
+app.post("/events/web-pixel", async (req, res) => {
+  const parsed = webPixelSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const { eventName, payload } = parsed.data;
+  if (eventName === "checkout_completed" && payload.orderId) {
+    await runtime.markCheckoutRecovered(payload.checkoutToken, payload.orderId, payload.shopDomain);
+    return res.status(202).json({ ok: true, handled: eventName });
+  }
+
+  saveRecoveryPayload({
+    checkoutToken: payload.checkoutToken,
+    shopDomain: payload.shopDomain,
+    checkoutUrl: payload.checkoutUrl,
+    cartUrl: payload.cartUrl,
+    lineItems: payload.lineItems || [],
+    currencyCode: payload.currencyCode,
+    paymentMethod: payload.paymentMethod,
+    paymentFailureLabel: payload.paymentFailureLabel,
+    updatedAt: new Date().toISOString()
+  });
+  await runtime.ingestSignal(payload, new Date().toISOString());
+  return res.status(202).json({ ok: true, handled: eventName });
 });
 
 app.post("/events/checkout-completed", async (req, res) => {
