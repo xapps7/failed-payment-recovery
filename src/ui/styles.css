@@ -371,6 +371,11 @@ textarea {
   background: #fff;
 }
 
+.feed-row.selected-row {
+  border-color: rgba(0, 128, 96, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(0, 128, 96, 0.12);
+}
+
 .feed-cell {
   min-width: 0;
   display: grid;
@@ -500,6 +505,44 @@ textarea {
   text-align: left;
 }
 
+.session-drawer {
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.drawer-head {
+  margin-bottom: 12px;
+}
+
+.drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.drawer-panel {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fbfbfb;
+}
+
+.drawer-panel strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.92rem;
+}
+
+.drawer-panel p {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .settings-page .studio-grid {
   align-items: start;
 }
@@ -549,7 +592,8 @@ textarea {
   .main-grid,
   .studio-grid,
   .metrics.compact,
-  .command-strip {
+  .command-strip,
+  .drawer-grid {
     grid-template-columns: 1fr;
   }
 

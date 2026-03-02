@@ -170,6 +170,7 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [section, setSection] = useState<AppSection>("overview");
   const [activatingPixel, setActivatingPixel] = useState(false);
 
@@ -182,12 +183,17 @@ export function App() {
     const payload = (await response.json()) as PlatformPayload;
     setData(payload);
     setSelectedCampaignId((current) => current || payload.campaigns[0]?.id || "");
+    setSelectedSessionId((current) => current || payload.sessions[0]?.id || "");
     setLoading(false);
   }
 
   const selectedCampaign = useMemo(
     () => data.campaigns.find((campaign) => campaign.id === selectedCampaignId) || data.campaigns[0],
     [data.campaigns, selectedCampaignId]
+  );
+  const selectedSession = useMemo(
+    () => data.sessions.find((session) => session.id === selectedSessionId) || data.sessions[0],
+    [data.sessions, selectedSessionId]
   );
 
   async function saveCampaign() {
@@ -527,7 +533,11 @@ export function App() {
               </div>
               <div className="feed-grid-body">
                 {data.sessions.map((session) => (
-                  <article key={session.id} className="feed-grid feed-row">
+                  <article
+                    key={session.id}
+                    className={`feed-grid feed-row ${selectedSession?.id === session.id ? "selected-row" : ""}`}
+                    onClick={() => setSelectedSessionId(session.id)}
+                  >
                     <div className="feed-cell order-cell">
                       <strong>{session.checkoutToken}</strong>
                       <p>{session.email || session.phone || "No reachable contact"}</p>
@@ -558,15 +568,48 @@ export function App() {
                       </p>
                     </div>
                     <div className="feed-actions stacked">
-                      <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, session.shopDomain, "mark_contacted")}>Mark contacted</button>
-                      <button className="ghost-button" onClick={() => void runFeedAction(session.checkoutToken, session.shopDomain, "escalate_support")}>Escalate</button>
-                      <button className="ghost-button" onClick={() => void generateOffer(session.checkoutToken, session.shopDomain)}>Generate offer</button>
+                      <button className="ghost-button" onClick={(event) => { event.stopPropagation(); void runFeedAction(session.checkoutToken, session.shopDomain, "mark_contacted"); }}>Mark contacted</button>
+                      <button className="ghost-button" onClick={(event) => { event.stopPropagation(); void runFeedAction(session.checkoutToken, session.shopDomain, "escalate_support"); }}>Escalate</button>
+                      <button className="ghost-button" onClick={(event) => { event.stopPropagation(); void generateOffer(session.checkoutToken, session.shopDomain); }}>Generate offer</button>
                     </div>
                   </article>
                 ))}
               </div>
             </div>
           )}
+          {selectedSession ? (
+            <section className="session-drawer">
+              <div className="section-head drawer-head">
+                <div>
+                  <h3>Session Detail</h3>
+                  <span>{selectedSession.checkoutToken}</span>
+                </div>
+                <span className={`badge badge-${selectedSession.state.toLowerCase()}`}>{stateLabel(selectedSession.state)}</span>
+              </div>
+              <div className="drawer-grid">
+                <div className="drawer-panel">
+                  <span className="eyebrow">Recovery path</span>
+                  <strong>{selectedSession.campaignName}</strong>
+                  <p>{selectedSession.paymentMethod || "Unknown payment method"} routed through {selectedCampaign?.experience.destination || "checkout"}.</p>
+                </div>
+                <div className="drawer-panel">
+                  <span className="eyebrow">Delivery status</span>
+                  <strong>{`Email: ${deliveryLabel(selectedSession.deliveryStatus?.emailStatus)}`}</strong>
+                  <p>{`SMS: ${deliveryLabel(selectedSession.deliveryStatus?.smsStatus)}`}</p>
+                </div>
+                <div className="drawer-panel">
+                  <span className="eyebrow">Buyer engagement</span>
+                  <strong>{`${selectedSession.engagement?.opens || 0} opens / ${selectedSession.engagement?.clicks || 0} clicks`}</strong>
+                  <p>{selectedSession.operatorAction?.lastAction ? `Last manual action: ${selectedSession.operatorAction.lastAction.replace("_", " ")}` : "No operator escalation yet."}</p>
+                </div>
+                <div className="drawer-panel">
+                  <span className="eyebrow">Offer</span>
+                  <strong>{selectedSession.offer?.code || "No offer generated"}</strong>
+                  <p>{selectedSession.offer ? "Rescue code is ready for the next touch." : "Generate an offer if this session needs incentive recovery."}</p>
+                </div>
+              </div>
+            </section>
+          ) : null}
           <div className="section-note">Retry links now resolve to checkout, cart, or support based on campaign policy and stored recovery payload.</div>
         </section>
       ) : null}

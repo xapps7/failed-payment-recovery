@@ -1,0 +1,17 @@
+client_id = "4750368861cd6700530661ca7207ee61"
+name = "Paymentapp"
+handle = "paymentapp"
+application_url = "https://ff5khhjejr.us-east-1.awsapprunner.com"
+embedded = true
+
+[access_scopes]
+scopes = "read_orders,read_customers,read_discounts,write_discounts,read_pixels,write_pixels,read_customer_events"
+
+[auth]
+redirect_urls = [
+  "https://ff5khhjejr.us-east-1.awsapprunner.com/auth/callback",
+  "https://ff5khhjejr.us-east-1.awsapprunner.com/auth/shopify/callback"
+]
+
+[webhooks]
+api_version = "2025-01"
