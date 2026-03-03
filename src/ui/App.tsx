@@ -221,6 +221,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("");
+  const [saveScope, setSaveScope] = useState<AppSection | "">("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [section, setSection] = useState<AppSection>("overview");
@@ -253,6 +254,7 @@ export function App() {
     if (!selectedCampaign) return;
     setSaving(true);
     setSaveState("");
+    setSaveScope("");
     const response = await fetch("/campaigns", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -261,15 +263,18 @@ export function App() {
     setSaving(false);
     if (!response.ok) {
       setSaveState("Campaign save failed.");
+      setSaveScope("campaigns");
       return;
     }
     await refresh();
     setSaveState("Campaign saved.");
+    setSaveScope("campaigns");
   }
 
   async function activateCampaign(id: string) {
     setSaving(true);
     setSaveState("");
+    setSaveScope("");
     const response = await fetch(`/campaigns/${id}/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -278,15 +283,18 @@ export function App() {
     setSaving(false);
     if (!response.ok) {
       setSaveState("Could not activate campaign.");
+      setSaveScope("campaigns");
       return;
     }
     await refresh();
     setSaveState("Active campaign updated.");
+    setSaveScope("campaigns");
   }
 
   async function saveSettings() {
     setSaving(true);
     setSaveState("");
+    setSaveScope("");
     const response = await fetch("/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -295,10 +303,12 @@ export function App() {
     setSaving(false);
     if (!response.ok) {
       setSaveState("Settings save failed.");
+      setSaveScope("settings");
       return;
     }
     await refresh();
     setSaveState("Settings saved.");
+    setSaveScope("settings");
   }
 
   async function runFeedAction(
@@ -327,10 +337,12 @@ export function App() {
     const shopDomain = appConfig?.shop || data.sessions[0]?.shopDomain || "";
     if (!shopDomain) {
       setSaveState("Missing shop domain for pixel activation.");
+      setSaveScope("settings");
       return;
     }
     setActivatingPixel(true);
     setSaveState("");
+    setSaveScope("");
     const response = await fetch("/pixels/activate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -339,12 +351,14 @@ export function App() {
     const payload = (await response.json()) as { activated?: boolean; reason?: string };
     setActivatingPixel(false);
     setSaveState(response.ok ? "Web pixel activated for this store." : payload.reason || "Web pixel activation failed.");
+    setSaveScope("settings");
   }
 
   async function applyAiDraft(mode: "urgent" | "concierge" | "concise") {
     if (!selectedCampaign) return;
     setSaving(true);
     setSaveState("");
+    setSaveScope("");
     const response = await fetch("/campaigns/ai-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -353,11 +367,13 @@ export function App() {
     setSaving(false);
     if (!response.ok) {
       setSaveState("AI draft failed.");
+      setSaveScope("campaigns");
       return;
     }
     const payload = (await response.json()) as { theme: NonNullable<typeof selectedCampaign>["theme"] };
     updateSelectedCampaign((campaign) => ({ ...campaign, theme: payload.theme }));
     setSaveState("AI draft applied. Review before saving.");
+    setSaveScope("campaigns");
   }
 
   function updateSelectedCampaign(
@@ -421,18 +437,22 @@ export function App() {
     }
   ];
 
-  const saveBanner = saveState ? (
-    <Banner tone={isFailureMessage(saveState) ? "critical" : "success"}>{saveState}</Banner>
+  const saveBanner = saveState && saveScope === section ? (
+    <Banner
+      tone={isFailureMessage(saveState) ? "critical" : "success"}
+      onDismiss={() => {
+        setSaveState("");
+        setSaveScope("");
+      }}
+    >
+      {saveState}
+    </Banner>
   ) : null;
 
   const prioritySessions = data.sessions.slice(0, 4);
 
   return (
-    <Page
-      fullWidth
-      title="Retryly"
-      compactTitle
-    >
+    <Page fullWidth>
       <Layout>
         <Layout.Section>
           <Banner tone="info" title="Payment retry control center">
@@ -454,17 +474,12 @@ export function App() {
 
         <Layout.Section>
           <Card>
-            <BlockStack gap="300">
+            <BlockStack gap="200">
               <LegacyTabs
                 tabs={tabs}
                 selected={selectedTabIndex < 0 ? 0 : selectedTabIndex}
                 onSelect={(index) => setSection(sectionOrder[index])}
               />
-              {saveBanner ? (
-                <Box paddingBlockStart="200">
-                  {saveBanner}
-                </Box>
-              ) : null}
             </BlockStack>
           </Card>
         </Layout.Section>
@@ -474,6 +489,7 @@ export function App() {
             <Layout.Section>
               <Card>
                 <BlockStack gap="400">
+                  {saveBanner}
                   <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="100">
                       <InlineStack gap="100" blockAlign="center">
@@ -586,6 +602,7 @@ export function App() {
           <Layout.Section>
             <Card>
               <BlockStack gap="500">
+                {saveBanner}
                 <Text as="h3" variant="headingMd">Campaign Studio</Text>
                 {campaignTabs.length > 0 ? (
                   <LegacyTabs
@@ -727,6 +744,7 @@ export function App() {
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
+                {saveBanner}
                 <Text as="h3" variant="headingMd">Recovery Feed</Text>
                 {data.sessions.length === 0 ? (
                   <Text as="p" variant="bodyMd" tone="subdued">No failed sessions yet.</Text>
@@ -868,6 +886,7 @@ export function App() {
           <Layout.Section>
             <Card>
               <BlockStack gap="500">
+                {saveBanner}
                 <Text as="h3" variant="headingMd">Merchant Settings</Text>
                 <div className="polarisTwoColumnGrid">
                   <Card background="bg-surface-secondary" padding="400">
@@ -924,6 +943,10 @@ export function App() {
             </Card>
           </Layout.Section>
         ) : null}
+
+        <Layout.Section>
+          <Box paddingBlockEnd="600" />
+        </Layout.Section>
       </Layout>
     </Page>
   );
