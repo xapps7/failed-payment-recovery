@@ -1,4 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Badge,
+  Banner,
+  BlockStack,
+  Box,
+  Button,
+  Card,
+  Checkbox,
+  Divider,
+  IndexTable,
+  InlineStack,
+  Layout,
+  Page,
+  Select,
+  Tabs,
+  Text,
+  TextField,
+  Tooltip
+} from "@shopify/polaris";
 import "./styles.css";
 
 type SessionState = "LIKELY_FAILED_PAYMENT" | "RECOVERED" | "EXPIRED" | "UNSUBSCRIBED" | "PENDING";
@@ -156,6 +175,20 @@ function stateLabel(state: SessionState): string {
   }
 }
 
+function stateTone(state: SessionState): "success" | "info" | "warning" | "critical" {
+  switch (state) {
+    case "RECOVERED":
+      return "success";
+    case "EXPIRED":
+    case "UNSUBSCRIBED":
+      return "critical";
+    case "LIKELY_FAILED_PAYMENT":
+      return "warning";
+    default:
+      return "info";
+  }
+}
+
 function deliveryLabel(status?: string): string {
   if (!status) return "Not sent";
   return status
@@ -163,12 +196,15 @@ function deliveryLabel(status?: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function HelpTip({ content }: { content: string }) {
+function isFailureMessage(message: string): boolean {
+  return /fail|could not|missing|error/i.test(message);
+}
+
+function Tip({ content }: { content: string }) {
   return (
-    <span className="help-tip" tabIndex={0} aria-label={content}>
-      ?
-      <span className="help-tip-bubble" role="tooltip">{content}</span>
-    </span>
+    <Tooltip content={content} preferredPosition="above">
+      <Text as="span" tone="subdued" variant="bodySm">?</Text>
+    </Tooltip>
   );
 }
 
@@ -200,6 +236,7 @@ export function App() {
     () => data.campaigns.find((campaign) => campaign.id === selectedCampaignId) || data.campaigns[0],
     [data.campaigns, selectedCampaignId]
   );
+
   const selectedSession = useMemo(
     () => data.sessions.find((session) => session.id === selectedSessionId) || data.sessions[0],
     [data.sessions, selectedSessionId]
@@ -267,9 +304,7 @@ export function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, shopDomain })
     });
-    if (response.ok) {
-      await refresh();
-    }
+    if (response.ok) await refresh();
   }
 
   async function generateOffer(checkoutToken: string, shopDomain: string) {
@@ -278,9 +313,7 @@ export function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ shopDomain })
     });
-    if (response.ok) {
-      await refresh();
-    }
+    if (response.ok) await refresh();
   }
 
   async function activatePixel() {
@@ -301,7 +334,9 @@ export function App() {
     setSaveState(response.ok ? "Web pixel activated for this store." : payload.reason || "Web pixel activation failed.");
   }
 
-  function updateSelectedCampaign(updater: (campaign: NonNullable<typeof selectedCampaign>) => NonNullable<typeof selectedCampaign>) {
+  function updateSelectedCampaign(
+    updater: (campaign: NonNullable<typeof selectedCampaign>) => NonNullable<typeof selectedCampaign>
+  ) {
     if (!selectedCampaign) return;
     setData((current) => ({
       ...current,
@@ -311,391 +346,432 @@ export function App() {
     }));
   }
 
-  function updateSettings<K extends keyof PlatformPayload["settings"]>(key: K, value: PlatformPayload["settings"][K]) {
+  function updateSettings<K extends keyof PlatformPayload["settings"]>(
+    key: K,
+    value: PlatformPayload["settings"][K]
+  ) {
     setData((current) => ({ ...current, settings: { ...current.settings, [key]: value } }));
   }
 
-  const commandCards = [
-    { label: "Recovered revenue", value: formatCurrency(data.commandCenter.recoveredRevenue), tone: "success" },
-    { label: "At-risk revenue", value: formatCurrency(data.commandCenter.pendingRevenue), tone: "warning" },
-    { label: "Detected failures", value: String(data.commandCenter.detected), tone: "default" },
-    { label: "Recovery rate", value: `${data.commandCenter.recoveryRate}%`, tone: "default" }
+  const sectionOrder: AppSection[] = ["overview", "campaigns", "feed", "settings"];
+  const tabs = [
+    { id: "overview", content: "Overview" },
+    { id: "campaigns", content: "Campaign Studio" },
+    { id: "feed", content: "Recovery Feed" },
+    { id: "settings", content: "Settings" }
+  ];
+  const selectedTabIndex = sectionOrder.indexOf(section);
+
+  const campaignTabs = data.campaigns.map((campaign) => ({
+    id: campaign.id,
+    content: campaign.name,
+    badge: campaign.status === "ACTIVE" ? "Active" : campaign.status
+  }));
+  const selectedCampaignTabIndex = selectedCampaign ? data.campaigns.findIndex((campaign) => campaign.id === selectedCampaign.id) : 0;
+
+  const summaryCards = [
+    { label: "Recovered revenue", value: formatCurrency(data.commandCenter.recoveredRevenue) },
+    { label: "At-risk revenue", value: formatCurrency(data.commandCenter.pendingRevenue) },
+    { label: "Detected failures", value: String(data.commandCenter.detected) },
+    { label: "Recovery rate", value: `${data.commandCenter.recoveryRate}%` }
   ];
 
+  const saveBanner = saveState ? (
+    <Banner tone={isFailureMessage(saveState) ? "critical" : "success"}>{saveState}</Banner>
+  ) : null;
+
   return (
-    <main className="layout">
-      <header className="hero" style={{ borderTopColor: data.settings.accentColor }}>
-        <div>
-          <p className="kicker">Merchant-Controlled Recovery Platform</p>
-          <h1>Control failed-payment recovery like a revenue program.</h1>
-          <p className="hero-copy">
-            Separate campaign design, operational recovery, and merchant settings so sellers can tune payment recovery without touching code.
-          </p>
-        </div>
-        <div className="hero-side">
-          <span className="pill">{loading ? "Loading" : `${data.commandCenter.active} live recoveries`}</span>
-          <p>{appConfig?.embedded ? "Embedded in Shopify Admin" : "Standalone app view"}</p>
-          <p>Store: {appConfig?.shop || "Not connected"}</p>
-          <p>Active campaign: {data.insights.activeCampaign}</p>
-        </div>
-      </header>
+    <Page
+      fullWidth
+      title="Paymentapp"
+      subtitle="Merchant-controlled failed-payment recovery inside Shopify Admin"
+      compactTitle
+    >
+      <Layout>
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <InlineStack align="space-between" blockAlign="start" gap="400">
+                <BlockStack gap="100">
+                  <Text as="p" variant="bodySm" tone="subdued">Merchant-Controlled Recovery Platform</Text>
+                  <Text as="h2" variant="headingLg">Run failed-payment recovery like a revenue program.</Text>
+                  <Text as="p" variant="bodyMd" tone="subdued">
+                    Embedded in Shopify Admin with campaigns, delivery tracking, buyer engagement, and operator actions.
+                  </Text>
+                </BlockStack>
+                <BlockStack gap="200">
+                  <Badge tone="info">{loading ? "Loading" : `${data.commandCenter.active} live recoveries`}</Badge>
+                  <Text as="p" variant="bodySm" tone="subdued">Store: {appConfig?.shop || "Not connected"}</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">Active campaign: {data.insights.activeCampaign}</Text>
+                </BlockStack>
+              </InlineStack>
+              <Tabs tabs={tabs} selected={selectedTabIndex < 0 ? 0 : selectedTabIndex} onSelect={(index) => setSection(sectionOrder[index])} fitted />
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
-      <section className="card surface nav-surface">
-        <div className="campaign-tabs nav-tabs">
-          {[
-            ["overview", "Overview"],
-            ["campaigns", "Campaign Studio"],
-            ["feed", "Recovery Feed"],
-            ["settings", "Settings"]
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              className={`tab ${section === value ? "active" : ""}`}
-              onClick={() => setSection(value as AppSection)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
+        <Layout.Section>
+          {saveBanner}
+        </Layout.Section>
 
-      {section === "overview" ? (
-        <>
-          <section className="surface-grid top-grid">
-            <section className="card surface">
-              <div className="section-head">
-                <h3>Command Center</h3>
-                <span>Live revenue operations</span>
+        {section === "overview" ? (
+          <>
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h3" variant="headingMd">Command Center</Text>
+                  <div className="polarisMetricGrid">
+                    {summaryCards.map((card) => (
+                      <Card key={card.label} background="bg-surface-secondary" padding="400">
+                        <BlockStack gap="100">
+                          <Text as="p" variant="bodySm" tone="subdued">{card.label}</Text>
+                          <Text as="p" variant="headingMd">{card.value}</Text>
+                        </BlockStack>
+                      </Card>
+                    ))}
+                  </div>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+            <Layout.Section>
+              <div className="polarisOverviewGrid">
+                <Card>
+                  <BlockStack gap="300">
+                    <Text as="h3" variant="headingMd">Current performance</Text>
+                    <Text as="p" variant="bodyMd">Recovered orders: {data.commandCenter.recovered}</Text>
+                    <Text as="p" variant="bodyMd">Expired flows: {data.commandCenter.expired}</Text>
+                    <Text as="p" variant="bodyMd">Markets covered: {data.insights.countriesCovered.join(", ") || "Global"}</Text>
+                  </BlockStack>
+                </Card>
+                <Card>
+                  <BlockStack gap="300">
+                    <Text as="h3" variant="headingMd">Channel shape</Text>
+                    <Text as="p" variant="bodyMd">Email steps: {data.insights.channelMix.email}</Text>
+                    <Text as="p" variant="bodyMd">SMS steps: {data.insights.channelMix.sms}</Text>
+                    <Text as="p" variant="bodyMd">Highest priority: {data.insights.highestPriorityCampaign || "-"}</Text>
+                  </BlockStack>
+                </Card>
               </div>
-              <div className="metrics compact">
-                {commandCards.map((card) => (
-                  <article key={card.label} className={`metric metric-${card.tone}`}>
-                    <p>{card.label}</p>
-                    <h2>{card.value}</h2>
-                  </article>
-                ))}
-              </div>
-              <div className="command-strip">
-                <div><span className="eyebrow">Recovered orders</span><strong>{data.commandCenter.recovered}</strong></div>
-                <div><span className="eyebrow">Expired flows</span><strong>{data.commandCenter.expired}</strong></div>
-                <div><span className="eyebrow">Markets covered</span><strong>{data.insights.countriesCovered.join(", ") || "Global"}</strong></div>
-              </div>
-            </section>
-            <section className="card surface">
-              <div className="section-head">
-                <h3>Insights</h3>
-                <span>Current platform shape</span>
-              </div>
-              <div className="insight-list">
-                <div><span>Primary campaign</span><strong>{data.insights.highestPriorityCampaign || "-"}</strong></div>
-                <div><span>Email steps</span><strong>{data.insights.channelMix.email}</strong></div>
-                <div><span>SMS steps</span><strong>{data.insights.channelMix.sms}</strong></div>
-                <div><span>Support route</span><strong>{selectedCampaign?.experience.destination || "checkout"}</strong></div>
-              </div>
-            </section>
-          </section>
-        </>
-      ) : null}
+            </Layout.Section>
+          </>
+        ) : null}
 
-      {section === "campaigns" ? (
-        <section className="card surface campaign-studio">
-          <div className="section-head">
-            <h3>Campaign Studio</h3>
-            <span>Targeting, landing behavior, incentives, and escalation</span>
-          </div>
-          <div className="campaign-tabs">
-            {data.campaigns.map((campaign) => (
-              <button
-                key={campaign.id}
-                className={`tab ${campaign.id === selectedCampaign?.id ? "active" : ""}`}
-                onClick={() => setSelectedCampaignId(campaign.id)}
-              >
-                {campaign.name}
-                <small>{campaign.status}</small>
-              </button>
-            ))}
-          </div>
-          {selectedCampaign ? (
-            <div className="studio-grid">
-              <div className="studio-column">
-                <label>Campaign name
-                  <input value={selectedCampaign.name} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, name: e.target.value }))} />
-                </label>
-                <label>Minimum order value
-                  <input type="number" min={0} value={selectedCampaign.rules.minimumOrderValue} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, minimumOrderValue: Number(e.target.value) || 0 } }))} />
-                </label>
-                <label>Customer segment
-                  <select value={selectedCampaign.rules.customerSegment} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, customerSegment: e.target.value as typeof c.rules.customerSegment } }))}>
-                    <option value="all">All customers</option>
-                    <option value="new">New customers</option>
-                    <option value="returning">Returning customers</option>
-                    <option value="vip">VIP customers</option>
-                  </select>
-                </label>
-                <label>Countries
-                  <input value={selectedCampaign.rules.includeCountries.join(",")} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, includeCountries: e.target.value.split(",").map((v) => v.trim().toUpperCase()).filter(Boolean) } }))} />
-                </label>
-                <label>
-                  <span className="label-row">Payment methods <HelpTip content="Limit this campaign to specific gateways like credit_card, shop_pay, or paypal. Leave blank to target all payment methods." /></span>
-                  <input value={selectedCampaign.rules.paymentMethods.join(",")} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, paymentMethods: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) } }))} />
-                </label>
-              </div>
-              <div className="studio-column">
-                <div className="section-subhead">Retry Experience</div>
-                <label>Retry destination
-                  <select value={selectedCampaign.experience.destination} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, destination: e.target.value as typeof c.experience.destination } }))}>
-                    <option value="checkout">Checkout</option>
-                    <option value="cart">Cart</option>
-                    <option value="support">Direct support</option>
-                  </select>
-                </label>
-                <div className="inline-pair">
-                  <label>Discount after attempt
-                    <input type="number" min={0} value={selectedCampaign.experience.discountAfterAttempt ?? 0} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountAfterAttempt: Number(e.target.value) || null } }))} />
-                  </label>
-                  <label>Discount value
-                    <input type="number" min={0} value={selectedCampaign.experience.discountValue} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountValue: Number(e.target.value) || 0 } }))} />
-                  </label>
-                </div>
-                <label>Discount type
-                  <select value={selectedCampaign.experience.discountType} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountType: e.target.value as typeof c.experience.discountType } }))}>
-                    <option value="percentage">Percentage</option>
-                    <option value="fixed">Fixed</option>
-                  </select>
-                </label>
-                <label>Direct contact after attempt
-                  <input type="number" min={0} value={selectedCampaign.experience.directContactAfterAttempt ?? 0} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(e.target.value) || null } }))} />
-                </label>
-                <label className="toggle"><input type="checkbox" checked={selectedCampaign.experience.allowAgentEscalation} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, allowAgentEscalation: e.target.checked } }))} /><span>Allow agent escalation <HelpTip content="When enabled, the campaign can shift from automated recovery to direct merchant-assisted support after the configured attempt." /></span></label>
-                <div className="control-list compact-list">
-                  <div><span>Buyer landing</span><strong>{selectedCampaign.experience.destination}</strong></div>
-                  <div><span>Discount policy</span><strong>{selectedCampaign.experience.discountAfterAttempt ? `After attempt ${selectedCampaign.experience.discountAfterAttempt}` : "Off"}</strong></div>
-                  <div><span>Manual support</span><strong>{selectedCampaign.experience.directContactAfterAttempt ? `After attempt ${selectedCampaign.experience.directContactAfterAttempt}` : "Off"}</strong></div>
-                </div>
-              </div>
-              <div className="studio-column full-width">
-                <div className="section-subhead">Sequence Builder</div>
-                <div className="step-list">
-                  {selectedCampaign.steps.map((step, index) => (
-                    <div key={step.id} className="step-card">
-                      <div className="step-index">Step {index + 1}</div>
-                      <div className="step-grid three-up">
-                        <label>Delay (min)
-                          <input type="number" min={1} value={step.delayMinutes} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((x) => x.id === step.id ? { ...x, delayMinutes: Number(e.target.value) || 1 } : x) }))} />
-                        </label>
-                        <label>Channel
-                          <select value={step.channel} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((x) => x.id === step.id ? { ...x, channel: e.target.value as CampaignChannel } : x) }))}>
-                            <option value="email">Email</option>
-                            <option value="sms">SMS</option>
-                          </select>
-                        </label>
-                        <label>Tone
-                          <select value={step.tone} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((x) => x.id === step.id ? { ...x, tone: e.target.value as CampaignTone } : x) }))}>
-                            <option value="steady">Steady</option>
-                            <option value="urgent">Urgent</option>
-                            <option value="concierge">Concierge</option>
-                            <option value="rescue">Rescue</option>
-                          </select>
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="studio-column full-width">
-                <div className="section-subhead">Creative</div>
-                <label>Email headline
-                  <input value={selectedCampaign.theme.headline} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, headline: e.target.value } }))} />
-                </label>
-                <label>Email body
-                  <textarea value={selectedCampaign.theme.body} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, body: e.target.value } }))} />
-                </label>
-                <label>SMS copy
-                  <textarea value={selectedCampaign.theme.sms} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, sms: e.target.value } }))} />
-                </label>
-              </div>
-            </div>
-          ) : null}
-          <div className="action-row">
-            <button className="save-button" onClick={() => void saveCampaign()} disabled={saving || !selectedCampaign}>{saving ? "Saving..." : "Save campaign"}</button>
-            {selectedCampaign ? <button className="ghost-button" onClick={() => void activateCampaign(selectedCampaign.id)} disabled={saving}>Make active</button> : null}
-            {saveState ? <span className="status-line">{saveState}</span> : null}
-          </div>
-        </section>
-      ) : null}
+        {section === "campaigns" ? (
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="500">
+                <Text as="h3" variant="headingMd">Campaign Studio</Text>
+                {campaignTabs.length > 0 ? (
+                  <Tabs
+                    tabs={campaignTabs}
+                    selected={selectedCampaignTabIndex < 0 ? 0 : selectedCampaignTabIndex}
+                    onSelect={(index) => setSelectedCampaignId(data.campaigns[index].id)}
+                  />
+                ) : null}
+                {selectedCampaign ? (
+                  <div className="polarisTwoColumnGrid">
+                    <Card background="bg-surface-secondary" padding="400">
+                      <BlockStack gap="400">
+                        <Text as="h4" variant="headingSm">Audience</Text>
+                        <TextField label="Campaign name" autoComplete="off" value={selectedCampaign.name} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, name: value }))} />
+                        <TextField label="Minimum order value" autoComplete="off" type="number" value={String(selectedCampaign.rules.minimumOrderValue)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, minimumOrderValue: Number(value) || 0 } }))} />
+                        <Select
+                          label="Customer segment"
+                          options={[
+                            { label: "All customers", value: "all" },
+                            { label: "New customers", value: "new" },
+                            { label: "Returning customers", value: "returning" },
+                            { label: "VIP customers", value: "vip" }
+                          ]}
+                          value={selectedCampaign.rules.customerSegment}
+                          onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, customerSegment: value as typeof c.rules.customerSegment } }))}
+                        />
+                        <TextField label="Countries" helpText="Comma-separated country codes" autoComplete="off" value={selectedCampaign.rules.includeCountries.join(",")} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, includeCountries: value.split(",").map((entry) => entry.trim().toUpperCase()).filter(Boolean) } }))} />
+                        <TextField
+                          label={
+                            <InlineStack gap="100" blockAlign="center">
+                              <span>Payment methods</span>
+                              <Tip content="Limit this campaign to specific gateways like credit_card, shop_pay, or paypal. Leave blank to target all payment methods." />
+                            </InlineStack>
+                          }
+                          autoComplete="off"
+                          helpText="Comma-separated gateway keys"
+                          value={selectedCampaign.rules.paymentMethods.join(",")}
+                          onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, paymentMethods: value.split(",").map((entry) => entry.trim()).filter(Boolean) } }))}
+                        />
+                      </BlockStack>
+                    </Card>
 
-      {section === "feed" ? (
-        <section className="card surface">
-          <div className="section-head">
-            <h3>Recovery Feed</h3>
-            <span>Grid-first ops view with campaign, delivery, and engagement flags</span>
-          </div>
-          {data.sessions.length === 0 ? <div className="feed-empty">No failed sessions yet.</div> : (
-            <div className="feed-grid-shell">
-              <div className="feed-grid feed-grid-head">
-                <span>Order</span>
-                <span>Campaign</span>
-                <span>Payment</span>
-                <span>Delivery</span>
-                <span>Engagement</span>
-                <span>State</span>
-                <span>Action</span>
-              </div>
-              <div className="feed-grid-body">
-                {data.sessions.map((session) => (
-                  <article
-                    key={session.id}
-                    className={`feed-grid feed-row ${selectedSession?.id === session.id ? "selected-row" : ""}`}
-                    onClick={() => setSelectedSessionId(session.id)}
+                    <Card background="bg-surface-secondary" padding="400">
+                      <BlockStack gap="400">
+                        <Text as="h4" variant="headingSm">Retry experience</Text>
+                        <Select
+                          label="Retry destination"
+                          options={[
+                            { label: "Checkout", value: "checkout" },
+                            { label: "Cart", value: "cart" },
+                            { label: "Direct support", value: "support" }
+                          ]}
+                          value={selectedCampaign.experience.destination}
+                          onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, destination: value as typeof c.experience.destination } }))}
+                        />
+                        <div className="polarisTwoColumnGrid">
+                          <TextField label="Discount after attempt" autoComplete="off" type="number" value={String(selectedCampaign.experience.discountAfterAttempt ?? 0)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountAfterAttempt: Number(value) || null } }))} />
+                          <TextField label="Discount value" autoComplete="off" type="number" value={String(selectedCampaign.experience.discountValue)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountValue: Number(value) || 0 } }))} />
+                        </div>
+                        <Select
+                          label="Discount type"
+                          options={[
+                            { label: "Percentage", value: "percentage" },
+                            { label: "Fixed", value: "fixed" }
+                          ]}
+                          value={selectedCampaign.experience.discountType}
+                          onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountType: value as typeof c.experience.discountType } }))}
+                        />
+                        <TextField label="Direct contact after attempt" autoComplete="off" type="number" value={String(selectedCampaign.experience.directContactAfterAttempt ?? 0)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(value) || null } }))} />
+                        <Checkbox
+                          label={
+                            <InlineStack gap="100" blockAlign="center">
+                              <span>Allow agent escalation</span>
+                              <Tip content="Let the campaign shift from automated recovery to direct merchant-assisted support after the configured attempt." />
+                            </InlineStack>
+                          }
+                          checked={selectedCampaign.experience.allowAgentEscalation}
+                          onChange={(checked) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, allowAgentEscalation: checked } }))}
+                        />
+                      </BlockStack>
+                    </Card>
+                  </div>
+                ) : null}
+
+                {selectedCampaign ? (
+                  <Card background="bg-surface-secondary" padding="400">
+                    <BlockStack gap="400">
+                      <Text as="h4" variant="headingSm">Sequence Builder</Text>
+                      {selectedCampaign.steps.map((step, index) => (
+                        <Card key={step.id} padding="400">
+                          <BlockStack gap="300">
+                            <Text as="h5" variant="headingXs">Step {index + 1}</Text>
+                            <div className="polarisThreeColumnGrid">
+                              <TextField label="Delay (min)" autoComplete="off" type="number" value={String(step.delayMinutes)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((item) => item.id === step.id ? { ...item, delayMinutes: Number(value) || 1 } : item) }))} />
+                              <Select label="Channel" options={[{ label: "Email", value: "email" }, { label: "SMS", value: "sms" }]} value={step.channel} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((item) => item.id === step.id ? { ...item, channel: value as CampaignChannel } : item) }))} />
+                              <Select label="Tone" options={[{ label: "Steady", value: "steady" }, { label: "Urgent", value: "urgent" }, { label: "Concierge", value: "concierge" }, { label: "Rescue", value: "rescue" }]} value={step.tone} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, steps: c.steps.map((item) => item.id === step.id ? { ...item, tone: value as CampaignTone } : item) }))} />
+                            </div>
+                          </BlockStack>
+                        </Card>
+                      ))}
+                    </BlockStack>
+                  </Card>
+                ) : null}
+
+                {selectedCampaign ? (
+                  <Card background="bg-surface-secondary" padding="400">
+                    <BlockStack gap="400">
+                      <Text as="h4" variant="headingSm">Creative</Text>
+                      <TextField label="Email headline" autoComplete="off" value={selectedCampaign.theme.headline} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, headline: value } }))} />
+                      <TextField label="Email body" autoComplete="off" multiline={4} value={selectedCampaign.theme.body} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, body: value } }))} />
+                      <TextField label="SMS copy" autoComplete="off" multiline={3} value={selectedCampaign.theme.sms} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, sms: value } }))} />
+                    </BlockStack>
+                  </Card>
+                ) : null}
+
+                <InlineStack align="space-between" blockAlign="center" gap="300">
+                  <InlineStack gap="300">
+                    <Button variant="primary" onClick={() => void saveCampaign()} loading={saving} disabled={!selectedCampaign}>Save campaign</Button>
+                    {selectedCampaign ? <Button onClick={() => void activateCampaign(selectedCampaign.id)} disabled={saving}>Make active</Button> : null}
+                  </InlineStack>
+                  <Text as="p" variant="bodySm" tone="subdued">Use Shopify-style controls here first, then expand BFS polish.</Text>
+                </InlineStack>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        ) : null}
+
+        {section === "feed" ? (
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h3" variant="headingMd">Recovery Feed</Text>
+                {data.sessions.length === 0 ? (
+                  <Text as="p" variant="bodyMd" tone="subdued">No failed sessions yet.</Text>
+                ) : (
+                  <IndexTable
+                    selectable={false}
+                    itemCount={data.sessions.length}
+                    resourceName={{ singular: "failed payment session", plural: "failed payment sessions" }}
+                    headings={[
+                      { title: "Order" },
+                      { title: "Campaign" },
+                      { title: "Payment" },
+                      { title: "Delivery" },
+                      { title: "Engagement" },
+                      { title: "State" },
+                      { title: "Actions" }
+                    ]}
                   >
-                    <div className="feed-cell order-cell">
-                      <strong>{session.checkoutToken}</strong>
-                      <p>{session.email || session.phone || "No reachable contact"}</p>
-                      <p className="micro-copy">
-                        {formatCurrency(session.amountSubtotal || 0)} {session.countryCode || "--"} / {session.customerSegment || "all"}
-                      </p>
-                    </div>
-                    <div className="feed-cell">
-                      <strong>{session.campaignName}</strong>
-                      <p className="micro-copy">{session.offer ? `Offer ${session.offer.code}` : "No offer yet"}</p>
-                    </div>
-                    <div className="feed-cell">
-                      <strong>{session.paymentMethod || "Unknown"}</strong>
-                      <p className="micro-copy">Attempt {session.attemptCount + 1}</p>
-                    </div>
-                    <div className="feed-cell">
-                      <span className="flag">{`Email: ${deliveryLabel(session.deliveryStatus?.emailStatus)}`}</span>
-                      <span className="flag">{`SMS: ${deliveryLabel(session.deliveryStatus?.smsStatus)}`}</span>
-                    </div>
-                    <div className="feed-cell">
-                      <span className={`flag ${session.engagement?.opens ? "flag-positive" : ""}`}>Opened {session.engagement?.opens || 0}</span>
-                      <span className={`flag ${session.engagement?.clicks ? "flag-positive" : ""}`}>Clicked {session.engagement?.clicks || 0}</span>
-                    </div>
-                    <div className="feed-cell">
-                      <span className={`badge badge-${session.state.toLowerCase()}`}>{stateLabel(session.state)}</span>
-                      <p className="micro-copy">
-                        {session.operatorAction?.lastAction ? `Last: ${session.operatorAction.lastAction.replace("_", " ")}` : "No manual action"}
-                      </p>
-                    </div>
-                    <div className="feed-actions stacked">
-                      <button className="ghost-button" onClick={(event) => { event.stopPropagation(); void runFeedAction(session.checkoutToken, session.shopDomain, "mark_contacted"); }}>Mark contacted</button>
-                      <button className="ghost-button" onClick={(event) => { event.stopPropagation(); void runFeedAction(session.checkoutToken, session.shopDomain, "escalate_support"); }}>Escalate</button>
-                      <button className="ghost-button" onClick={(event) => { event.stopPropagation(); void generateOffer(session.checkoutToken, session.shopDomain); }}>Generate offer</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-          {selectedSession ? (
-            <section className="session-drawer">
-              <div className="section-head drawer-head">
-                <div>
-                  <h3>Session Detail</h3>
-                  <span>{selectedSession.checkoutToken}</span>
-                </div>
-                <span className={`badge badge-${selectedSession.state.toLowerCase()}`}>{stateLabel(selectedSession.state)}</span>
-              </div>
-              <div className="drawer-grid">
-                <div className="drawer-panel">
-                  <span className="eyebrow">Recovery path</span>
-                  <strong>{selectedSession.campaignName}</strong>
-                  <p>{selectedSession.paymentMethod || "Unknown payment method"} routed through {selectedCampaign?.experience.destination || "checkout"}.</p>
-                </div>
-                <div className="drawer-panel">
-                  <span className="eyebrow">Delivery status</span>
-                  <strong>{`Email: ${deliveryLabel(selectedSession.deliveryStatus?.emailStatus)}`}</strong>
-                  <p>{`SMS: ${deliveryLabel(selectedSession.deliveryStatus?.smsStatus)}`}</p>
-                </div>
-                <div className="drawer-panel">
-                  <span className="eyebrow">Buyer engagement</span>
-                  <strong>{`${selectedSession.engagement?.opens || 0} opens / ${selectedSession.engagement?.clicks || 0} clicks`}</strong>
-                  <p>{selectedSession.operatorAction?.lastAction ? `Last manual action: ${selectedSession.operatorAction.lastAction.replace("_", " ")}` : "No operator escalation yet."}</p>
-                </div>
-                <div className="drawer-panel">
-                  <span className="eyebrow">Offer</span>
-                  <strong>{selectedSession.offer?.code || "No offer generated"}</strong>
-                  <p>{selectedSession.offer ? "Rescue code is ready for the next touch." : "Generate an offer if this session needs incentive recovery."}</p>
-                </div>
-              </div>
-            </section>
-          ) : null}
-          <div className="section-note">Retry links now resolve to checkout, cart, or support based on campaign policy and stored recovery payload.</div>
-        </section>
-      ) : null}
+                    {data.sessions.map((session, index) => (
+                      <IndexTable.Row id={session.id} key={session.id} position={index} onClick={() => setSelectedSessionId(session.id)}>
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Text as="span" variant="bodySm" fontWeight="semibold">{session.checkoutToken}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">{session.email || session.phone || "No reachable contact"}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">{formatCurrency(session.amountSubtotal || 0)} {session.countryCode || "--"} / {session.customerSegment || "all"}</Text>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Text as="span" variant="bodySm">{session.campaignName}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">{session.offer ? `Offer ${session.offer.code}` : "No offer yet"}</Text>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Text as="span" variant="bodySm">{session.paymentMethod || "Unknown"}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">Attempt {session.attemptCount + 1}</Text>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Text as="span" variant="bodyXs">Email: {deliveryLabel(session.deliveryStatus?.emailStatus)}</Text>
+                            <Text as="span" variant="bodyXs">SMS: {deliveryLabel(session.deliveryStatus?.smsStatus)}</Text>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Text as="span" variant="bodyXs">Opened {session.engagement?.opens || 0}</Text>
+                            <Text as="span" variant="bodyXs">Clicked {session.engagement?.clicks || 0}</Text>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Badge tone={stateTone(session.state)}>{stateLabel(session.state)}</Badge>
+                            <Text as="span" variant="bodyXs" tone="subdued">{session.operatorAction?.lastAction ? `Last: ${session.operatorAction.lastAction.replace("_", " ")}` : "No manual action"}</Text>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <BlockStack gap="200">
+                            <Button size="slim" textAlign="left" onClick={() => void runFeedAction(session.checkoutToken, session.shopDomain, "mark_contacted")}>Mark contacted</Button>
+                            <Button size="slim" textAlign="left" onClick={() => void runFeedAction(session.checkoutToken, session.shopDomain, "escalate_support")}>Escalate</Button>
+                            <Button size="slim" textAlign="left" onClick={() => void generateOffer(session.checkoutToken, session.shopDomain)}>Generate offer</Button>
+                          </BlockStack>
+                        </IndexTable.Cell>
+                      </IndexTable.Row>
+                    ))}
+                  </IndexTable>
+                )}
 
-      {section === "settings" ? (
-        <section className="card surface settings-page">
-          <div className="section-head">
-            <h3>Merchant Settings</h3>
-            <span>Brand, compliance, and default controls</span>
-          </div>
-          <div className="studio-grid">
-            <div className="studio-column">
-              <div className="settings-group">
-                <div className="settings-group-head">
-                  <div>
-                    <h4>Branding</h4>
-                    <p>Merchant-facing identity used in recovery messages and app UI.</p>
-                  </div>
+                {selectedSession ? (
+                  <>
+                    <Divider />
+                    <Card background="bg-surface-secondary" padding="400">
+                      <BlockStack gap="400">
+                        <InlineStack align="space-between" blockAlign="center">
+                          <BlockStack gap="100">
+                            <Text as="h4" variant="headingSm">Session Detail</Text>
+                            <Text as="p" variant="bodySm" tone="subdued">{selectedSession.checkoutToken}</Text>
+                          </BlockStack>
+                          <Badge tone={stateTone(selectedSession.state)}>{stateLabel(selectedSession.state)}</Badge>
+                        </InlineStack>
+                        <div className="polarisOverviewGrid">
+                          <Card padding="400">
+                            <BlockStack gap="200">
+                              <Text as="p" variant="bodySm" tone="subdued">Recovery path</Text>
+                              <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.campaignName}</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">{selectedSession.paymentMethod || "Unknown payment method"} routed through {selectedCampaign?.experience.destination || "checkout"}.</Text>
+                            </BlockStack>
+                          </Card>
+                          <Card padding="400">
+                            <BlockStack gap="200">
+                              <Text as="p" variant="bodySm" tone="subdued">Delivery status</Text>
+                              <Text as="p" variant="bodyMd" fontWeight="semibold">Email: {deliveryLabel(selectedSession.deliveryStatus?.emailStatus)}</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">SMS: {deliveryLabel(selectedSession.deliveryStatus?.smsStatus)}</Text>
+                            </BlockStack>
+                          </Card>
+                          <Card padding="400">
+                            <BlockStack gap="200">
+                              <Text as="p" variant="bodySm" tone="subdued">Buyer engagement</Text>
+                              <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.engagement?.opens || 0} opens / {selectedSession.engagement?.clicks || 0} clicks</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">{selectedSession.operatorAction?.lastAction ? `Last manual action: ${selectedSession.operatorAction.lastAction.replace("_", " ")}` : "No operator escalation yet."}</Text>
+                            </BlockStack>
+                          </Card>
+                          <Card padding="400">
+                            <BlockStack gap="200">
+                              <Text as="p" variant="bodySm" tone="subdued">Offer</Text>
+                              <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.offer?.code || "No offer generated"}</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">{selectedSession.offer ? "Rescue code is ready for the next touch." : "Generate an offer if this session needs incentive recovery."}</Text>
+                            </BlockStack>
+                          </Card>
+                        </div>
+                      </BlockStack>
+                    </Card>
+                  </>
+                ) : null}
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        ) : null}
+
+        {section === "settings" ? (
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="500">
+                <Text as="h3" variant="headingMd">Merchant Settings</Text>
+                <div className="polarisTwoColumnGrid">
+                  <Card background="bg-surface-secondary" padding="400">
+                    <BlockStack gap="400">
+                      <Text as="h4" variant="headingSm">Branding</Text>
+                      <TextField label="Brand name" autoComplete="off" value={data.settings.brandName} onChange={(value) => updateSettings("brandName", value)} />
+                      <TextField label="Support email" autoComplete="email" type="email" value={data.settings.supportEmail} onChange={(value) => updateSettings("supportEmail", value)} />
+                      <TextField label="Accent color" autoComplete="off" value={data.settings.accentColor} onChange={(value) => updateSettings("accentColor", value)} />
+                    </BlockStack>
+                  </Card>
+
+                  <Card background="bg-surface-secondary" padding="400">
+                    <BlockStack gap="400">
+                      <Text as="h4" variant="headingSm">Recovery defaults</Text>
+                      <TextField
+                        label={
+                          <InlineStack gap="100" blockAlign="center">
+                            <span>Default retry cadence (minutes)</span>
+                            <Tip content="Comma-separated intervals. Example: 15, 360, 1440 for 15 minutes, 6 hours, and 24 hours." />
+                          </InlineStack>
+                        }
+                        autoComplete="off"
+                        value={data.settings.retryMinutes.join(",")}
+                        onChange={(value) => updateSettings("retryMinutes", value.split(",").map((entry) => Number(entry.trim())).filter((entry) => Number.isFinite(entry) && entry > 0))}
+                      />
+                      <Checkbox label="Email recovery enabled" checked={data.settings.sendEmail} onChange={(checked) => updateSettings("sendEmail", checked)} />
+                      <Checkbox label="SMS recovery enabled" checked={data.settings.sendSms} onChange={(checked) => updateSettings("sendSms", checked)} />
+                      <Text as="p" variant="bodySm" tone="subdued">Route strategy: {selectedCampaign?.experience.destination || "checkout"}</Text>
+                    </BlockStack>
+                  </Card>
                 </div>
-              <label>Brand name
-                <input value={data.settings.brandName} onChange={(e) => updateSettings("brandName", e.target.value)} />
-              </label>
-              <label>Support email
-                <input value={data.settings.supportEmail} onChange={(e) => updateSettings("supportEmail", e.target.value)} />
-              </label>
-              <label>Accent color
-                <div className="color-row"><input type="color" value={data.settings.accentColor} onChange={(e) => updateSettings("accentColor", e.target.value)} /><code>{data.settings.accentColor}</code></div>
-              </label>
-              </div>
-            </div>
-            <div className="studio-column">
-              <div className="settings-group">
-                <div className="settings-group-head">
-                  <div>
-                    <h4>Recovery defaults</h4>
-                    <p>Default cadence and channels used across recovery workflows.</p>
-                  </div>
-                </div>
-              <label>
-                <span className="label-row">Default retry cadence (minutes) <HelpTip content="Comma-separated intervals. Example: 15, 360, 1440 for 15 minutes, 6 hours, and 24 hours." /></span>
-                <input value={data.settings.retryMinutes.join(",")} onChange={(e) => updateSettings("retryMinutes", e.target.value.split(",").map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v > 0))} />
-              </label>
-              <label className="toggle"><input type="checkbox" checked={data.settings.sendEmail} onChange={(e) => updateSettings("sendEmail", e.target.checked)} /><span>Email recovery enabled</span></label>
-              <label className="toggle"><input type="checkbox" checked={data.settings.sendSms} onChange={(e) => updateSettings("sendSms", e.target.checked)} /><span>SMS recovery enabled</span></label>
-              <div className="control-list">
-                <div><span>Current route strategy</span><strong>{selectedCampaign?.experience.destination || "checkout"}</strong></div>
-                <div><span>Support path</span><strong>{data.settings.supportEmail}</strong></div>
-                <div><span>Embedded mode</span><strong>{appConfig?.embedded ? "Yes" : "No"}</strong></div>
-              </div>
-              </div>
-              <div className="settings-group">
-                <div className="settings-group-head">
-                  <div>
-                    <h4>Shopify signals</h4>
-                    <p>Activate live checkout event capture and pixel-based recovery signals.</p>
-                  </div>
-                  <HelpTip content="Use this after reinstall so the store grants pixel scopes. The app will try to create the web pixel registration for this shop." />
-                </div>
-                <div className="action-row grouped-actions">
-                  <button className="ghost-button" onClick={() => void activatePixel()} disabled={activatingPixel}>
-                    {activatingPixel ? "Activating pixel..." : "Activate store pixel"}
-                  </button>
-                  <span className="status-line">Requires reinstall after scope changes.</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="action-row single-action">
-            <button className="save-button" onClick={() => void saveSettings()} disabled={saving}>{saving ? "Saving..." : "Save settings"}</button>
-            {saveState ? <span className="status-line">{saveState}</span> : null}
-          </div>
-          <div className="section-note">
-            Install scopes now include discounts and web-pixel access. Reinstall the app after deploy so Shopify grants the expanded permissions.
-          </div>
-        </section>
-      ) : null}
-    </main>
+
+                <Card background="bg-surface-secondary" padding="400">
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <BlockStack gap="100">
+                        <Text as="h4" variant="headingSm">Shopify signals</Text>
+                        <Text as="p" variant="bodySm" tone="subdued">Activate live checkout event capture and pixel-based recovery signals.</Text>
+                      </BlockStack>
+                      <Tip content="Use this after reinstall so the store grants pixel scopes. The app will try to create the web pixel registration for this shop." />
+                    </InlineStack>
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Button onClick={() => void activatePixel()} loading={activatingPixel}>Activate store pixel</Button>
+                      <Text as="p" variant="bodySm" tone="subdued">Reinstall the app after scope changes.</Text>
+                    </InlineStack>
+                  </BlockStack>
+                </Card>
+
+                <InlineStack align="space-between" blockAlign="center">
+                  <Button variant="primary" onClick={() => void saveSettings()} loading={saving}>Save settings</Button>
+                  <Text as="p" variant="bodySm" tone="subdued">Polaris-first layout for BFS alignment.</Text>
+                </InlineStack>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        ) : null}
+      </Layout>
+    </Page>
   );
 }

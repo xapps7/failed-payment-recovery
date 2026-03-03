@@ -1,4 +1,5 @@
 name = "retryly-web-pixel"
+uid = "ddd543ab-0ae8-3cd0-4c07-9ae9cefca2691d6719a8"
 type = "web_pixel_extension"
 runtime_context = "strict"
 
