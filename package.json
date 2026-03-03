@@ -20,6 +20,7 @@
     "@prisma/client": "^6.5.0",
     "@shopify/app-bridge-react": "^4.1.6",
     "@shopify/polaris": "^13.9.3",
+    "@shopify/web-pixels-extension": "^2.18.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "react": "^18.3.1",
