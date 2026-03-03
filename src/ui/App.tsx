@@ -163,6 +163,15 @@ function deliveryLabel(status?: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function HelpTip({ content }: { content: string }) {
+  return (
+    <span className="help-tip" tabIndex={0} aria-label={content}>
+      ?
+      <span className="help-tip-bubble" role="tooltip">{content}</span>
+    </span>
+  );
+}
+
 export function App() {
   const appConfig = window.__APP_CONFIG__;
   const [data, setData] = useState<PlatformPayload>(emptyPayload);
@@ -426,7 +435,8 @@ export function App() {
                 <label>Countries
                   <input value={selectedCampaign.rules.includeCountries.join(",")} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, includeCountries: e.target.value.split(",").map((v) => v.trim().toUpperCase()).filter(Boolean) } }))} />
                 </label>
-                <label>Payment methods
+                <label>
+                  <span className="label-row">Payment methods <HelpTip content="Limit this campaign to specific gateways like credit_card, shop_pay, or paypal. Leave blank to target all payment methods." /></span>
                   <input value={selectedCampaign.rules.paymentMethods.join(",")} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, paymentMethods: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) } }))} />
                 </label>
               </div>
@@ -456,7 +466,7 @@ export function App() {
                 <label>Direct contact after attempt
                   <input type="number" min={0} value={selectedCampaign.experience.directContactAfterAttempt ?? 0} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(e.target.value) || null } }))} />
                 </label>
-                <label className="toggle"><input type="checkbox" checked={selectedCampaign.experience.allowAgentEscalation} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, allowAgentEscalation: e.target.checked } }))} /><span>Allow agent escalation</span></label>
+                <label className="toggle"><input type="checkbox" checked={selectedCampaign.experience.allowAgentEscalation} onChange={(e) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, allowAgentEscalation: e.target.checked } }))} /><span>Allow agent escalation <HelpTip content="When enabled, the campaign can shift from automated recovery to direct merchant-assisted support after the configured attempt." /></span></label>
                 <div className="control-list compact-list">
                   <div><span>Buyer landing</span><strong>{selectedCampaign.experience.destination}</strong></div>
                   <div><span>Discount policy</span><strong>{selectedCampaign.experience.discountAfterAttempt ? `After attempt ${selectedCampaign.experience.discountAfterAttempt}` : "Off"}</strong></div>
@@ -622,6 +632,13 @@ export function App() {
           </div>
           <div className="studio-grid">
             <div className="studio-column">
+              <div className="settings-group">
+                <div className="settings-group-head">
+                  <div>
+                    <h4>Branding</h4>
+                    <p>Merchant-facing identity used in recovery messages and app UI.</p>
+                  </div>
+                </div>
               <label>Brand name
                 <input value={data.settings.brandName} onChange={(e) => updateSettings("brandName", e.target.value)} />
               </label>
@@ -631,9 +648,18 @@ export function App() {
               <label>Accent color
                 <div className="color-row"><input type="color" value={data.settings.accentColor} onChange={(e) => updateSettings("accentColor", e.target.value)} /><code>{data.settings.accentColor}</code></div>
               </label>
+              </div>
             </div>
             <div className="studio-column">
-              <label>Default retry cadence (minutes)
+              <div className="settings-group">
+                <div className="settings-group-head">
+                  <div>
+                    <h4>Recovery defaults</h4>
+                    <p>Default cadence and channels used across recovery workflows.</p>
+                  </div>
+                </div>
+              <label>
+                <span className="label-row">Default retry cadence (minutes) <HelpTip content="Comma-separated intervals. Example: 15, 360, 1440 for 15 minutes, 6 hours, and 24 hours." /></span>
                 <input value={data.settings.retryMinutes.join(",")} onChange={(e) => updateSettings("retryMinutes", e.target.value.split(",").map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v > 0))} />
               </label>
               <label className="toggle"><input type="checkbox" checked={data.settings.sendEmail} onChange={(e) => updateSettings("sendEmail", e.target.checked)} /><span>Email recovery enabled</span></label>
@@ -643,13 +669,26 @@ export function App() {
                 <div><span>Support path</span><strong>{data.settings.supportEmail}</strong></div>
                 <div><span>Embedded mode</span><strong>{appConfig?.embedded ? "Yes" : "No"}</strong></div>
               </div>
+              </div>
+              <div className="settings-group">
+                <div className="settings-group-head">
+                  <div>
+                    <h4>Shopify signals</h4>
+                    <p>Activate live checkout event capture and pixel-based recovery signals.</p>
+                  </div>
+                  <HelpTip content="Use this after reinstall so the store grants pixel scopes. The app will try to create the web pixel registration for this shop." />
+                </div>
+                <div className="action-row grouped-actions">
+                  <button className="ghost-button" onClick={() => void activatePixel()} disabled={activatingPixel}>
+                    {activatingPixel ? "Activating pixel..." : "Activate store pixel"}
+                  </button>
+                  <span className="status-line">Requires reinstall after scope changes.</span>
+                </div>
+              </div>
             </div>
           </div>
           <div className="action-row single-action">
             <button className="save-button" onClick={() => void saveSettings()} disabled={saving}>{saving ? "Saving..." : "Save settings"}</button>
-            <button className="ghost-button" onClick={() => void activatePixel()} disabled={activatingPixel}>
-              {activatingPixel ? "Activating pixel..." : "Activate store pixel"}
-            </button>
             {saveState ? <span className="status-line">{saveState}</span> : null}
           </div>
           <div className="section-note">

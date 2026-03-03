@@ -289,6 +289,105 @@ label {
   font-weight: 700;
 }
 
+.label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.toggle span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+
+.help-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: help;
+}
+
+.help-tip-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: 220px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(17, 18, 19, 0.08);
+  background: #111213;
+  color: #fff;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  font-weight: 500;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  box-shadow: 0 8px 22px rgba(17, 18, 19, 0.22);
+  z-index: 20;
+}
+
+.help-tip:hover .help-tip-bubble,
+.help-tip:focus .help-tip-bubble,
+.help-tip:focus-visible .help-tip-bubble {
+  opacity: 1;
+  visibility: visible;
+}
+
+.settings-group {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.settings-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-group-head h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.settings-group-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 input,
 select,
 textarea {
@@ -422,6 +521,11 @@ textarea {
   grid-template-columns: auto auto 1fr;
   align-items: center;
   margin-top: 16px;
+}
+
+.grouped-actions {
+  grid-template-columns: auto 1fr;
+  margin-top: 0;
 }
 
 .save-button,
