@@ -115,6 +115,13 @@ type PlatformPayload = {
       smsStatus?: string;
       updatedAt: string;
     };
+    discountSync?: {
+      status: "synced" | "failed";
+      reason?: string;
+      updatedAt: string;
+    };
+    retryStrategy?: string;
+    recommendedPaymentOptions?: string[];
   }>;
   insights: {
     activeCampaign: string;
@@ -332,6 +339,25 @@ export function App() {
     const payload = (await response.json()) as { activated?: boolean; reason?: string };
     setActivatingPixel(false);
     setSaveState(response.ok ? "Web pixel activated for this store." : payload.reason || "Web pixel activation failed.");
+  }
+
+  async function applyAiDraft(mode: "urgent" | "concierge" | "concise") {
+    if (!selectedCampaign) return;
+    setSaving(true);
+    setSaveState("");
+    const response = await fetch("/campaigns/ai-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, campaign: selectedCampaign })
+    });
+    setSaving(false);
+    if (!response.ok) {
+      setSaveState("AI draft failed.");
+      return;
+    }
+    const payload = (await response.json()) as { theme: NonNullable<typeof selectedCampaign>["theme"] };
+    updateSelectedCampaign((campaign) => ({ ...campaign, theme: payload.theme }));
+    setSaveState("AI draft applied. Review before saving.");
   }
 
   function updateSelectedCampaign(
@@ -587,7 +613,7 @@ export function App() {
                           value={selectedCampaign.rules.customerSegment}
                           onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, customerSegment: value as typeof c.rules.customerSegment } }))}
                         />
-                        <TextField label="Countries" helpText="Comma-separated country codes" autoComplete="off" value={selectedCampaign.rules.includeCountries.join(",")} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, includeCountries: value.split(",").map((entry) => entry.trim().toUpperCase()).filter(Boolean) } }))} />
+                          <TextField label={<InlineStack gap="100" blockAlign="center"><span>Countries</span><Tip content="Comma-separated ISO country codes. When Shopify sends country details, the runtime normalizes and stores them here for filtering and reporting." /></InlineStack>} helpText="Comma-separated country codes" autoComplete="off" value={selectedCampaign.rules.includeCountries.join(",")} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, rules: { ...c.rules, includeCountries: value.split(",").map((entry) => entry.trim().toUpperCase()).filter(Boolean) } }))} />
                         <TextField
                           label={
                             <InlineStack gap="100" blockAlign="center">
@@ -607,7 +633,7 @@ export function App() {
                       <BlockStack gap="400">
                         <Text as="h4" variant="headingSm">Retry experience</Text>
                         <Select
-                          label="Retry destination"
+                          label={<InlineStack gap="100" blockAlign="center"><span>Retry destination</span><Tip content="Choose whether the retry link resumes checkout, falls back to cart, or routes to direct support." /></InlineStack>}
                           options={[
                             { label: "Checkout", value: "checkout" },
                             { label: "Cart", value: "cart" },
@@ -617,11 +643,11 @@ export function App() {
                           onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, destination: value as typeof c.experience.destination } }))}
                         />
                         <div className="polarisTwoColumnGrid">
-                          <TextField label="Discount after attempt" autoComplete="off" type="number" value={String(selectedCampaign.experience.discountAfterAttempt ?? 0)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountAfterAttempt: Number(value) || null } }))} />
-                          <TextField label="Discount value" autoComplete="off" type="number" value={String(selectedCampaign.experience.discountValue)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountValue: Number(value) || 0 } }))} />
+                          <TextField label={<InlineStack gap="100" blockAlign="center"><span>Discount after attempt</span><Tip content="Offer a discount only after the chosen number of failed attempts." /></InlineStack>} autoComplete="off" type="number" value={String(selectedCampaign.experience.discountAfterAttempt ?? 0)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountAfterAttempt: Number(value) || null } }))} />
+                          <TextField label={<InlineStack gap="100" blockAlign="center"><span>Discount value</span><Tip content="This value is used for both the in-app rescue code and Shopify discount creation." /></InlineStack>} autoComplete="off" type="number" value={String(selectedCampaign.experience.discountValue)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountValue: Number(value) || 0 } }))} />
                         </div>
                         <Select
-                          label="Discount type"
+                          label={<InlineStack gap="100" blockAlign="center"><span>Discount type</span><Tip content="Percentage creates a proportional discount. Fixed creates a flat amount off." /></InlineStack>}
                           options={[
                             { label: "Percentage", value: "percentage" },
                             { label: "Fixed", value: "fixed" }
@@ -629,7 +655,7 @@ export function App() {
                           value={selectedCampaign.experience.discountType}
                           onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, discountType: value as typeof c.experience.discountType } }))}
                         />
-                        <TextField label="Direct contact after attempt" autoComplete="off" type="number" value={String(selectedCampaign.experience.directContactAfterAttempt ?? 0)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(value) || null } }))} />
+                        <TextField label={<InlineStack gap="100" blockAlign="center"><span>Direct contact after attempt</span><Tip content="After this attempt number, recovery copy shifts to merchant-assisted support." /></InlineStack>} autoComplete="off" type="number" value={String(selectedCampaign.experience.directContactAfterAttempt ?? 0)} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, experience: { ...c.experience, directContactAfterAttempt: Number(value) || null } }))} />
                         <Checkbox
                           label={
                             <InlineStack gap="100" blockAlign="center">
@@ -668,7 +694,17 @@ export function App() {
                 {selectedCampaign ? (
                   <Card background="bg-surface-secondary" padding="400">
                     <BlockStack gap="400">
-                      <Text as="h4" variant="headingSm">Creative</Text>
+                      <InlineStack align="space-between" blockAlign="center">
+                        <InlineStack gap="100" blockAlign="center">
+                          <Text as="h4" variant="headingSm">Creative</Text>
+                          <Tip content="Use AI assist to generate a first draft, then refine and save the final copy manually." />
+                        </InlineStack>
+                        <InlineStack gap="200">
+                          <Button size="slim" onClick={() => void applyAiDraft("urgent")} disabled={saving}>AI: Urgency</Button>
+                          <Button size="slim" onClick={() => void applyAiDraft("concierge")} disabled={saving}>AI: Concierge</Button>
+                          <Button size="slim" onClick={() => void applyAiDraft("concise")} disabled={saving}>AI: Concise</Button>
+                        </InlineStack>
+                      </InlineStack>
                       <TextField label="Email headline" autoComplete="off" value={selectedCampaign.theme.headline} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, headline: value } }))} />
                       <TextField label="Email body" autoComplete="off" multiline={4} value={selectedCampaign.theme.body} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, body: value } }))} />
                       <TextField label="SMS copy" autoComplete="off" multiline={3} value={selectedCampaign.theme.sms} onChange={(value) => updateSelectedCampaign((c) => ({ ...c, theme: { ...c.theme, sms: value } }))} />
@@ -723,6 +759,13 @@ export function App() {
                           <BlockStack gap="100">
                             <Text as="span" variant="bodySm">{session.campaignName}</Text>
                             <Text as="span" variant="bodyXs" tone="subdued">{session.offer ? `Offer ${session.offer.code}` : "No offer yet"}</Text>
+                            <Text as="span" variant="bodyXs" tone={session.discountSync?.status === "failed" ? "critical" : "subdued"}>
+                              {session.discountSync?.status === "synced"
+                                ? "Shopify discount synced"
+                                : session.discountSync?.status === "failed"
+                                  ? `Discount sync failed${session.discountSync.reason ? `: ${session.discountSync.reason}` : ""}`
+                                  : "Discount not synced yet"}
+                            </Text>
                           </BlockStack>
                         </IndexTable.Cell>
                         <IndexTable.Cell>
@@ -779,6 +822,7 @@ export function App() {
                               <Text as="p" variant="bodySm" tone="subdued">Recovery path</Text>
                               <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.campaignName}</Text>
                               <Text as="p" variant="bodySm" tone="subdued">{selectedSession.paymentMethod || "Unknown payment method"} routed through {selectedCampaign?.experience.destination || "checkout"}.</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">Retry strategy: {selectedSession.retryStrategy || "Pending route resolution"}</Text>
                             </BlockStack>
                           </Card>
                           <Card padding="400">
@@ -799,7 +843,16 @@ export function App() {
                             <BlockStack gap="200">
                               <Text as="p" variant="bodySm" tone="subdued">Offer</Text>
                               <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.offer?.code || "No offer generated"}</Text>
-                              <Text as="p" variant="bodySm" tone="subdued">{selectedSession.offer ? "Rescue code is ready for the next touch." : "Generate an offer if this session needs incentive recovery."}</Text>
+                              <Text as="p" variant="bodySm" tone={selectedSession.discountSync?.status === "failed" ? "critical" : "subdued"}>
+                                {selectedSession.discountSync?.status === "synced"
+                                  ? "Shopify discount synced and ready."
+                                  : selectedSession.discountSync?.status === "failed"
+                                    ? `Shopify discount failed: ${selectedSession.discountSync.reason || "Unknown reason"}`
+                                    : selectedSession.offer
+                                      ? "Rescue code is ready for the next touch."
+                                      : "Generate an offer if this session needs incentive recovery."}
+                              </Text>
+                              <Text as="p" variant="bodySm" tone="subdued">Suggested fallback methods: {selectedSession.recommendedPaymentOptions?.join(", ") || "Credit card, Shop Pay, PayPal"}</Text>
                             </BlockStack>
                           </Card>
                         </div>

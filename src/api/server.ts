@@ -25,6 +25,14 @@ import { getEngagement, recordClick, recordOpen } from "../services/engagementSt
 import { getDeliveryStatus, saveDeliveryStatus } from "../services/deliveryStatusStore";
 import { createShopifyDiscountCode } from "../services/shopifyDiscountService";
 import { activateShopifyWebPixel } from "../services/shopifyPixelService";
+import {
+  normalizeCountryCode,
+  normalizePaymentMethod,
+  recommendedPaymentOptions,
+  resolveRetryTarget
+} from "../services/recoveryIntelligence";
+import { getDiscountSync, saveDiscountSync } from "../services/discountSyncStore";
+import { buildDraftTheme, type DraftMode } from "../services/aiDraftService";
 
 const app = express();
 app.set("trust proxy", true);
@@ -145,6 +153,11 @@ const campaignSchema = z.object({
   })
 });
 
+const aiDraftSchema = z.object({
+  mode: z.enum(["urgent", "concierge", "concise"]),
+  campaign: campaignSchema
+});
+
 app.get("/status", (_req, res) => {
   return res.status(200).json({ ok: true, service: "failed-payment-recovery" });
 });
@@ -212,21 +225,22 @@ app.get("/recover/:token", (req, res) => {
   }
 
   const recoveryPayload = getRecoveryPayload(payload.checkoutToken, payload.shopDomain);
-  if (payload.destination !== "cart" && recoveryPayload?.checkoutUrl) {
-    return res.redirect(recoveryPayload.checkoutUrl);
-  }
-  if (recoveryPayload?.cartUrl) {
-    return res.redirect(recoveryPayload.cartUrl);
-  }
-  if (recoveryPayload?.lineItems?.length) {
-    const items = recoveryPayload.lineItems.map((item) => `${item.variantId}:${item.quantity}`).join(",");
-    const url = new URL(`https://${payload.shopDomain}/cart/${items}`);
-    if (payload.discountText) url.searchParams.set("discount_hint", payload.discountText);
-    return res.redirect(url.toString());
+  const retryResolution = resolveRetryTarget({
+    shopDomain: payload.shopDomain,
+    destination: payload.destination || "checkout",
+    checkoutUrl: recoveryPayload?.checkoutUrl,
+    cartUrl: recoveryPayload?.cartUrl,
+    lineItems: recoveryPayload?.lineItems,
+    discountText: payload.discountText
+  });
+  const targetUrl = retryResolution.targetUrl;
+  if (!targetUrl) {
+    return res.status(400).send("Retry target is unavailable.");
   }
 
-  const destination = payload.destination === "cart" ? "cart" : "checkout";
-  return res.redirect(`https://${payload.shopDomain}/${destination}`);
+  const alternatives = recommendedPaymentOptions(recoveryPayload?.paymentMethod || undefined);
+  const suggestions = alternatives.map((option) => `<li style="margin:0 0 6px;">Try ${option}</li>`).join("");
+  return res.status(200).type("html").send(`<!doctype html><html><head><title>Retry checkout</title><meta name="viewport" content="width=device-width, initial-scale=1" /><meta http-equiv="refresh" content="1;url=${targetUrl}" /></head><body style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;padding:24px;background:#f6f6f7;color:#202223;"><main style="max-width:560px;margin:32px auto;background:#fff;padding:24px;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.06);"><p style="margin:0 0 8px;color:#6d7175;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Retryly</p><h1 style="margin:0 0 12px;font-size:28px;">We saved your checkout.</h1><p style="margin:0 0 12px;line-height:1.6;">${retryResolution.strategy}. You can continue now, or try a different payment option if the last one failed.</p>${payload.discountText ? `<p style="margin:0 0 12px;line-height:1.6;"><strong>Offer available:</strong> ${payload.discountText}</p>` : ""}<ul style="padding-left:18px;margin:0 0 16px;line-height:1.6;">${suggestions}</ul><p><a href="${targetUrl}" style="display:inline-block;background:#008060;color:#fff;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:600;">Continue to checkout</a></p></main></body></html>`);
 });
 
 function buildInstallUrl(shop: string, baseUrl: string): string {
@@ -334,7 +348,16 @@ app.get("/platform", async (_req, res) => {
     operatorAction: getOperatorAction(session.checkoutToken, session.shopDomain),
     offer: getRecoveryOffer(session.checkoutToken, session.shopDomain),
     engagement: getEngagement(session.checkoutToken, session.shopDomain),
-    deliveryStatus: getDeliveryStatus(session.checkoutToken, session.shopDomain)
+    deliveryStatus: getDeliveryStatus(session.checkoutToken, session.shopDomain),
+    discountSync: getDiscountSync(session.checkoutToken, session.shopDomain),
+    retryStrategy: resolveRetryTarget({
+      shopDomain: session.shopDomain,
+      destination: (campaignById.get(session.campaignId || "") || activeCampaign).experience.destination,
+      checkoutUrl: getRecoveryPayload(session.checkoutToken, session.shopDomain)?.checkoutUrl,
+      cartUrl: getRecoveryPayload(session.checkoutToken, session.shopDomain)?.cartUrl,
+      lineItems: getRecoveryPayload(session.checkoutToken, session.shopDomain)?.lineItems
+    }).strategy,
+    recommendedPaymentOptions: recommendedPaymentOptions(session.paymentMethod)
   }));
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
@@ -397,6 +420,15 @@ app.post("/campaigns", async (req, res) => {
   return res.status(200).json(await saveRecoveryCampaign(parsed.data));
 });
 
+app.post("/campaigns/ai-draft", async (req, res) => {
+  const parsed = aiDraftSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const theme = buildDraftTheme(parsed.data.campaign, parsed.data.mode as DraftMode);
+  return res.status(200).json({ theme });
+});
+
 app.post("/campaigns/:id/status", async (req, res) => {
   const status = req.body?.status;
   if (!status || !["ACTIVE", "DRAFT", "PAUSED"].includes(status)) {
@@ -414,6 +446,9 @@ app.post("/events/payment-info-submitted", async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
+  const normalizedCountryCode = normalizeCountryCode(parsed.data.countryCode, parsed.data.currencyCode);
+  const normalizedPaymentMethod = normalizePaymentMethod(parsed.data.paymentMethod, parsed.data.paymentFailureLabel);
+
   saveRecoveryPayload({
     checkoutToken: parsed.data.checkoutToken,
     shopDomain: parsed.data.shopDomain,
@@ -421,11 +456,15 @@ app.post("/events/payment-info-submitted", async (req, res) => {
     cartUrl: parsed.data.cartUrl,
     lineItems: parsed.data.lineItems || [],
     currencyCode: parsed.data.currencyCode,
-    paymentMethod: parsed.data.paymentMethod,
+    paymentMethod: normalizedPaymentMethod,
     paymentFailureLabel: parsed.data.paymentFailureLabel,
     updatedAt: new Date().toISOString()
   });
-  await runtime.ingestSignal(parsed.data, new Date().toISOString());
+  await runtime.ingestSignal({
+    ...parsed.data,
+    countryCode: normalizedCountryCode,
+    paymentMethod: normalizedPaymentMethod
+  }, new Date().toISOString());
   return res.status(202).json({ ok: true });
 });
 
@@ -441,6 +480,9 @@ app.post("/events/web-pixel", async (req, res) => {
     return res.status(202).json({ ok: true, handled: eventName });
   }
 
+  const normalizedCountryCode = normalizeCountryCode(payload.countryCode, payload.currencyCode);
+  const normalizedPaymentMethod = normalizePaymentMethod(payload.paymentMethod, payload.paymentFailureLabel);
+
   saveRecoveryPayload({
     checkoutToken: payload.checkoutToken,
     shopDomain: payload.shopDomain,
@@ -448,11 +490,15 @@ app.post("/events/web-pixel", async (req, res) => {
     cartUrl: payload.cartUrl,
     lineItems: payload.lineItems || [],
     currencyCode: payload.currencyCode,
-    paymentMethod: payload.paymentMethod,
+    paymentMethod: normalizedPaymentMethod,
     paymentFailureLabel: payload.paymentFailureLabel,
     updatedAt: new Date().toISOString()
   });
-  await runtime.ingestSignal(payload, new Date().toISOString());
+  await runtime.ingestSignal({
+    ...payload,
+    countryCode: normalizedCountryCode,
+    paymentMethod: normalizedPaymentMethod
+  }, new Date().toISOString());
   return res.status(202).json({ ok: true, handled: eventName });
 });
 
@@ -504,6 +550,12 @@ app.post("/sessions/:checkoutToken/generate-offer", async (req, res) => {
     created: false,
     reason: error instanceof Error ? error.message : "Unknown error"
   }));
+  saveDiscountSync({
+    checkoutToken: req.params.checkoutToken,
+    shopDomain,
+    status: shopifyDiscount.created ? "synced" : "failed",
+    reason: shopifyDiscount.reason
+  });
   return res.status(200).json({ offer, shopifyDiscount });
 });
 
