@@ -203,7 +203,7 @@ function isFailureMessage(message: string): boolean {
 function Tip({ content }: { content: string }) {
   return (
     <Tooltip content={content} preferredPosition="above">
-      <Text as="span" tone="subdued" variant="bodySm">?</Text>
+      <span className="tooltipActivator" aria-hidden="true">i</span>
     </Tooltip>
   );
 }
@@ -369,10 +369,30 @@ export function App() {
   const selectedCampaignTabIndex = selectedCampaign ? data.campaigns.findIndex((campaign) => campaign.id === selectedCampaign.id) : 0;
 
   const summaryCards = [
-    { label: "Recovered revenue", value: formatCurrency(data.commandCenter.recoveredRevenue) },
-    { label: "At-risk revenue", value: formatCurrency(data.commandCenter.pendingRevenue) },
-    { label: "Detected failures", value: String(data.commandCenter.detected) },
-    { label: "Recovery rate", value: `${data.commandCenter.recoveryRate}%` }
+    {
+      label: "Recovered revenue",
+      value: formatCurrency(data.commandCenter.recoveredRevenue),
+      tone: "success",
+      help: "Revenue already recovered from failed-payment sessions."
+    },
+    {
+      label: "At-risk revenue",
+      value: formatCurrency(data.commandCenter.pendingRevenue),
+      tone: "caution",
+      help: "Revenue currently tied to failed-payment sessions that are still recoverable."
+    },
+    {
+      label: "Detected failures",
+      value: String(data.commandCenter.detected),
+      tone: "neutral",
+      help: "Total sessions detected as likely failed payments."
+    },
+    {
+      label: "Recovery rate",
+      value: `${data.commandCenter.recoveryRate}%`,
+      tone: "brand",
+      help: "Recovered sessions divided by detected failed-payment sessions."
+    }
   ];
 
   const saveBanner = saveState ? (
@@ -431,7 +451,10 @@ export function App() {
                 <BlockStack gap="400">
                   <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="100">
-                      <Text as="h3" variant="headingMd">Command Center</Text>
+                      <InlineStack gap="100" blockAlign="center">
+                        <Text as="h3" variant="headingMd">Command Center</Text>
+                        <Tip content="Primary operating view for recovery performance, campaign posture, and sessions needing action." />
+                      </InlineStack>
                       <Text as="p" variant="bodySm" tone="subdued">
                         A Shopify-style operating view for revenue at risk, recoveries in flight, and buyer response.
                       </Text>
@@ -440,12 +463,15 @@ export function App() {
                   </InlineStack>
                   <div className="polarisMetricGrid">
                     {summaryCards.map((card) => (
-                      <Card key={card.label} background="bg-surface-secondary" padding="400">
+                      <div key={card.label} className={`dashboardMetricTile dashboardMetricTile-${card.tone}`}>
                         <BlockStack gap="100">
-                          <Text as="p" variant="bodySm" tone="subdued">{card.label}</Text>
-                          <Text as="p" variant="headingMd">{card.value}</Text>
+                          <InlineStack align="space-between" blockAlign="center">
+                            <Text as="p" variant="bodySm" tone="subdued">{card.label}</Text>
+                            <Tip content={card.help} />
+                          </InlineStack>
+                          <Text as="p" variant="headingLg">{card.value}</Text>
                         </BlockStack>
-                      </Card>
+                      </div>
                     ))}
                   </div>
                 </BlockStack>

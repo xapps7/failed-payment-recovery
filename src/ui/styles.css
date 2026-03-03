@@ -7,6 +7,21 @@ body {
   min-height: 100vh;
 }
 
+.tooltipActivator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #e3f1df;
+  color: #005c48;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+
 .polarisMetricGrid,
 .polarisOverviewGrid,
 .polarisTwoColumnGrid,
@@ -23,6 +38,33 @@ body {
 
 .polarisThreeColumnGrid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboardMetricTile {
+  border: 1px solid #dfe3e8;
+  border-radius: 12px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.dashboardMetricTile-success {
+  background: linear-gradient(180deg, #f1fff7 0%, #ffffff 100%);
+  border-top: 4px solid #008060;
+}
+
+.dashboardMetricTile-caution {
+  background: linear-gradient(180deg, #fff8e6 0%, #ffffff 100%);
+  border-top: 4px solid #b98900;
+}
+
+.dashboardMetricTile-neutral {
+  background: linear-gradient(180deg, #f6f6f7 0%, #ffffff 100%);
+  border-top: 4px solid #6d7175;
+}
+
+.dashboardMetricTile-brand {
+  background: linear-gradient(180deg, #eef8ff 0%, #ffffff 100%);
+  border-top: 4px solid #2c6ecb;
 }
 
 @media (max-width: 900px) {
