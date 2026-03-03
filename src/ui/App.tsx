@@ -430,44 +430,43 @@ export function App() {
   return (
     <Page
       fullWidth
-      title="Retryly - Payment Retry"
-      subtitle="Merchant-controlled failed-payment recovery inside Shopify Admin"
+      title="Retryly"
       compactTitle
     >
       <Layout>
         <Layout.Section>
-          <Banner tone="success" title="Retryly - Payment Retry">
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="start" gap="400">
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">Merchant-Controlled Recovery Platform</Text>
-                  <Text as="h2" variant="headingLg">Run failed-payment recovery like a revenue program.</Text>
-                  <Text as="p" variant="bodyMd" tone="subdued">
-                    Embedded in Shopify Admin with campaigns, delivery tracking, buyer engagement, and operator actions.
-                  </Text>
-                </BlockStack>
-                <BlockStack gap="200">
-                  <Badge tone="info">{loading ? "Loading" : `${data.commandCenter.active} live recoveries`}</Badge>
-                  <Text as="p" variant="bodySm" tone="subdued">Store: {appConfig?.shop || "Not connected"}</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">Active campaign: {data.insights.activeCampaign}</Text>
-                </BlockStack>
-              </InlineStack>
-            </BlockStack>
+          <Banner tone="info" title="Payment retry control center">
+            <InlineStack align="space-between" blockAlign="start" gap="400">
+              <BlockStack gap="100">
+                <Text as="p" variant="headingSm">Run merchant-controlled failed-payment recovery inside Shopify Admin.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Campaigns, delivery tracking, buyer engagement, and operator actions in one operating surface.
+                </Text>
+              </BlockStack>
+              <BlockStack gap="200">
+                <Badge tone="info">{loading ? "Loading" : `${data.commandCenter.active} live recoveries`}</Badge>
+                <Text as="p" variant="bodySm" tone="subdued">Store: {appConfig?.shop || "Not connected"}</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Active campaign: {data.insights.activeCampaign}</Text>
+              </BlockStack>
+            </InlineStack>
           </Banner>
         </Layout.Section>
 
         <Layout.Section>
           <Card>
-            <LegacyTabs
-              tabs={tabs}
-              selected={selectedTabIndex < 0 ? 0 : selectedTabIndex}
-              onSelect={(index) => setSection(sectionOrder[index])}
-            />
+            <BlockStack gap="300">
+              <LegacyTabs
+                tabs={tabs}
+                selected={selectedTabIndex < 0 ? 0 : selectedTabIndex}
+                onSelect={(index) => setSection(sectionOrder[index])}
+              />
+              {saveBanner ? (
+                <Box paddingBlockStart="200">
+                  {saveBanner}
+                </Box>
+              ) : null}
+            </BlockStack>
           </Card>
-        </Layout.Section>
-
-        <Layout.Section>
-          {saveBanner}
         </Layout.Section>
 
         {section === "overview" ? (
