@@ -379,16 +379,18 @@ export function App() {
     <Banner tone={isFailureMessage(saveState) ? "critical" : "success"}>{saveState}</Banner>
   ) : null;
 
+  const prioritySessions = data.sessions.slice(0, 4);
+
   return (
     <Page
       fullWidth
-      title="Retryly"
+      title="Retryly - Payment Retry"
       subtitle="Merchant-controlled failed-payment recovery inside Shopify Admin"
       compactTitle
     >
       <Layout>
         <Layout.Section>
-          <Banner tone="success" title="Retryly">
+          <Banner tone="success" title="Retryly - Payment Retry">
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="start" gap="400">
                 <BlockStack gap="100">
@@ -427,7 +429,15 @@ export function App() {
             <Layout.Section>
               <Card>
                 <BlockStack gap="400">
-                  <Text as="h3" variant="headingMd">Command Center</Text>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <BlockStack gap="100">
+                      <Text as="h3" variant="headingMd">Command Center</Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        A Shopify-style operating view for revenue at risk, recoveries in flight, and buyer response.
+                      </Text>
+                    </BlockStack>
+                    <Badge tone="success">{`${data.commandCenter.active} active now`}</Badge>
+                  </InlineStack>
                   <div className="polarisMetricGrid">
                     {summaryCards.map((card) => (
                       <Card key={card.label} background="bg-surface-secondary" padding="400">
@@ -444,19 +454,76 @@ export function App() {
             <Layout.Section>
               <div className="polarisOverviewGrid">
                 <Card>
-                  <BlockStack gap="300">
-                    <Text as="h3" variant="headingMd">Current performance</Text>
-                    <Text as="p" variant="bodyMd">Recovered orders: {data.commandCenter.recovered}</Text>
-                    <Text as="p" variant="bodyMd">Expired flows: {data.commandCenter.expired}</Text>
-                    <Text as="p" variant="bodyMd">Markets covered: {data.insights.countriesCovered.join(", ") || "Global"}</Text>
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingMd">Recovery health</Text>
+                    <InlineStack align="space-between">
+                      <Text as="p" variant="bodySm" tone="subdued">Recovered orders</Text>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">{String(data.commandCenter.recovered)}</Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="p" variant="bodySm" tone="subdued">Expired flows</Text>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">{String(data.commandCenter.expired)}</Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="p" variant="bodySm" tone="subdued">Suppression risk</Text>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">{data.commandCenter.active > 0 ? "Monitor" : "Low"}</Text>
+                    </InlineStack>
+                    <Text as="p" variant="bodySm" tone="subdued">Markets covered: {data.insights.countriesCovered.join(", ") || "Global"}</Text>
                   </BlockStack>
                 </Card>
                 <Card>
-                  <BlockStack gap="300">
-                    <Text as="h3" variant="headingMd">Channel shape</Text>
-                    <Text as="p" variant="bodyMd">Email steps: {data.insights.channelMix.email}</Text>
-                    <Text as="p" variant="bodyMd">SMS steps: {data.insights.channelMix.sms}</Text>
-                    <Text as="p" variant="bodyMd">Highest priority: {data.insights.highestPriorityCampaign || "-"}</Text>
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingMd">Program status</Text>
+                    <InlineStack align="space-between">
+                      <Text as="p" variant="bodySm" tone="subdued">Primary campaign</Text>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">{data.insights.highestPriorityCampaign || "-"}</Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="p" variant="bodySm" tone="subdued">Email steps</Text>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">{String(data.insights.channelMix.email)}</Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="p" variant="bodySm" tone="subdued">SMS steps</Text>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">{String(data.insights.channelMix.sms)}</Text>
+                    </InlineStack>
+                    <Text as="p" variant="bodySm" tone="subdued">Active route: {selectedCampaign?.experience.destination || "checkout"}</Text>
+                  </BlockStack>
+                </Card>
+              </div>
+            </Layout.Section>
+            <Layout.Section>
+              <div className="polarisOverviewGrid">
+                <Card>
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingMd">Active campaign summary</Text>
+                    <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedCampaign?.name || "No campaign selected"}</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Destination: {selectedCampaign?.experience.destination || "checkout"} | Segment: {selectedCampaign?.rules.customerSegment || "all"}
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Discount: {selectedCampaign?.experience.discountAfterAttempt ? `after attempt ${selectedCampaign.experience.discountAfterAttempt}` : "disabled"}
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Payment methods: {selectedCampaign?.rules.paymentMethods.join(", ") || "All methods"}
+                    </Text>
+                  </BlockStack>
+                </Card>
+                <Card>
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingMd">Operator focus</Text>
+                    {prioritySessions.length === 0 ? (
+                      <Text as="p" variant="bodySm" tone="subdued">No live failed-payment sessions yet.</Text>
+                    ) : (
+                      prioritySessions.map((session) => (
+                        <InlineStack key={session.id} align="space-between" blockAlign="center">
+                          <BlockStack gap="0">
+                            <Text as="p" variant="bodySm" fontWeight="semibold">{session.checkoutToken}</Text>
+                            <Text as="p" variant="bodyXs" tone="subdued">{session.campaignName}</Text>
+                          </BlockStack>
+                          <Badge tone={stateTone(session.state)}>{stateLabel(session.state)}</Badge>
+                        </InlineStack>
+                      ))
+                    )}
                   </BlockStack>
                 </Card>
               </div>
