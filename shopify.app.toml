@@ -1,5 +1,5 @@
 client_id = "4750368861cd6700530661ca7207ee61"
-name = "Paymentapp"
+name = "Retryly"
 handle = "retryly-payment-retry-xapps7"
 application_url = "https://ff5khhjejr.us-east-1.awsapprunner.com"
 embedded = true

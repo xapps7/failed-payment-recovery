@@ -11,9 +11,9 @@ import {
   IndexTable,
   InlineStack,
   Layout,
+  LegacyTabs,
   Page,
   Select,
-  Tabs,
   Text,
   TextField,
   Tooltip
@@ -364,8 +364,7 @@ export function App() {
 
   const campaignTabs = data.campaigns.map((campaign) => ({
     id: campaign.id,
-    content: campaign.name,
-    badge: campaign.status === "ACTIVE" ? "Active" : campaign.status
+    content: campaign.name
   }));
   const selectedCampaignTabIndex = selectedCampaign ? data.campaigns.findIndex((campaign) => campaign.id === selectedCampaign.id) : 0;
 
@@ -383,14 +382,14 @@ export function App() {
   return (
     <Page
       fullWidth
-      title="Paymentapp"
+      title="Retryly"
       subtitle="Merchant-controlled failed-payment recovery inside Shopify Admin"
       compactTitle
     >
       <Layout>
         <Layout.Section>
-          <Card>
-            <BlockStack gap="400">
+          <Banner tone="success" title="Retryly">
+            <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="start" gap="400">
                 <BlockStack gap="100">
                   <Text as="p" variant="bodySm" tone="subdued">Merchant-Controlled Recovery Platform</Text>
@@ -405,8 +404,17 @@ export function App() {
                   <Text as="p" variant="bodySm" tone="subdued">Active campaign: {data.insights.activeCampaign}</Text>
                 </BlockStack>
               </InlineStack>
-              <Tabs tabs={tabs} selected={selectedTabIndex < 0 ? 0 : selectedTabIndex} onSelect={(index) => setSection(sectionOrder[index])} fitted />
             </BlockStack>
+          </Banner>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <LegacyTabs
+              tabs={tabs}
+              selected={selectedTabIndex < 0 ? 0 : selectedTabIndex}
+              onSelect={(index) => setSection(sectionOrder[index])}
+            />
           </Card>
         </Layout.Section>
 
@@ -462,7 +470,7 @@ export function App() {
               <BlockStack gap="500">
                 <Text as="h3" variant="headingMd">Campaign Studio</Text>
                 {campaignTabs.length > 0 ? (
-                  <Tabs
+                  <LegacyTabs
                     tabs={campaignTabs}
                     selected={selectedCampaignTabIndex < 0 ? 0 : selectedCampaignTabIndex}
                     onSelect={(index) => setSelectedCampaignId(data.campaigns[index].id)}
