@@ -29,7 +29,9 @@ export async function getShopifyWebPixelStatus(
   return {
     active: Boolean(existingPixelId),
     pixelId: existingPixelId,
-    reason: existingPixelId ? undefined : "No registered web pixel found"
+    reason: existingPixelId
+      ? undefined
+      : "No registered app web pixel found. Deploy the Shopify app version with the web pixel extension, reinstall the app, then register the pixel."
   };
 }
 
@@ -91,48 +93,8 @@ export async function activateShopifyWebPixel(
       };
     }
   }
-
-  const response = await postAdminGraphql<{
-    data?: {
-      webPixelCreate?: {
-        userErrors?: Array<{ message: string }>;
-        webPixel?: { id: string };
-      };
-    };
-  }>(
-    shopDomain,
-    accessToken,
-    `
-      mutation webPixelCreate($webPixel: WebPixelInput!) {
-        webPixelCreate(webPixel: $webPixel) {
-          userErrors { message }
-          webPixel { id }
-        }
-      }
-    `,
-    {
-      webPixel: {
-        settings
-      }
-    }
-  ).catch((error) => ({
-    data: {
-      webPixelCreate: {
-        userErrors: [{ message: error instanceof Error ? error.message : "Unknown error" }],
-        webPixel: undefined
-      }
-    }
-  }));
-
-  const pixelPayload = response.data?.webPixelCreate;
-  const pixel = pixelPayload?.webPixel;
-  const errors = pixelPayload?.userErrors || [];
-  if (!pixel || errors.length > 0) {
-    return { activated: false, reason: errors[0]?.message || "Pixel activation failed" };
-  }
-
   return {
-    activated: true,
-    pixelId: pixel.id
+    activated: false,
+    reason: "App web pixel is not registered in this store. Re-deploy the Shopify app version with the web pixel extension and reinstall the app, then re-activate."
   };
 }

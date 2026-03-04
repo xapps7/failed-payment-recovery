@@ -572,6 +572,11 @@ export function App() {
   const prioritySessions = [...data.sessions]
     .sort((left, right) => (right.conversionInsight?.score || 0) - (left.conversionInsight?.score || 0))
     .slice(0, 4);
+  const pixelActionLabel = pixelActive
+    ? "Re-activate store pixel"
+    : /No registered app web pixel/i.test(pixelStatusMessage)
+      ? "Register store pixel"
+      : "Activate store pixel";
 
   return (
     <Page fullWidth>
@@ -1120,7 +1125,7 @@ export function App() {
                     </InlineStack>
                     <InlineStack align="space-between" blockAlign="center">
                       <Button onClick={() => void activatePixel()} loading={activatingPixel}>
-                        {pixelActive ? "Re-activate store pixel" : "Activate store pixel"}
+                        {pixelActionLabel}
                       </Button>
                       <Text as="p" variant="bodySm" tone="subdued">{pixelStatusMessage}</Text>
                     </InlineStack>
