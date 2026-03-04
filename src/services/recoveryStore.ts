@@ -26,6 +26,15 @@ export interface DeliveryAttemptInput {
   payload?: Record<string, unknown>;
 }
 
+export interface DeliveryAttemptRecord {
+  id: string;
+  channel: "email" | "sms";
+  provider: string;
+  status: string;
+  providerMessageId?: string;
+  createdAt: string;
+}
+
 export interface RecoveryStore {
   upsertFailedSession(input: CreateSessionInput): Promise<RecoverySession>;
   getByCheckoutToken(checkoutToken: string, shopDomain?: string): Promise<RecoverySession | undefined>;
@@ -43,6 +52,7 @@ export interface RecoveryStore {
     pendingRevenue: number;
   }>;
   recordDeliveryAttempt(input: DeliveryAttemptInput): Promise<void>;
+  listDeliveryAttempts(sessionId: string): Promise<DeliveryAttemptRecord[]>;
 }
 
 type SessionRow = Prisma.RecoverySessionGetPayload<{
@@ -313,5 +323,24 @@ export class InMemoryRecoveryStore implements RecoveryStore {
         payload: (input.payload || undefined) as Prisma.InputJsonValue | undefined
       }
     });
+  }
+
+  async listDeliveryAttempts(sessionId: string): Promise<DeliveryAttemptRecord[]> {
+    const prisma = getPrisma();
+    if (!prisma) return [];
+
+    const rows = await prisma.deliveryAttempt.findMany({
+      where: { sessionId },
+      orderBy: { createdAt: "asc" }
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      channel: row.channel,
+      provider: row.provider,
+      status: row.status,
+      providerMessageId: row.providerMessageId || undefined,
+      createdAt: row.createdAt.toISOString()
+    }));
   }
 }

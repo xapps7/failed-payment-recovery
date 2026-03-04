@@ -121,6 +121,20 @@ type PlatformPayload = {
       reason?: string;
       updatedAt: string;
     };
+    customerInsight?: {
+      historicalOrderCount: number;
+      historicalSpendAmount: number;
+      currencyCode?: string;
+    };
+    recoveryStage?: string;
+    deliveryAttempts?: Array<{
+      id: string;
+      channel: "email" | "sms";
+      provider: string;
+      status: string;
+      providerMessageId?: string;
+      createdAt: string;
+    }>;
     retryStrategy?: string;
     recommendedPaymentOptions?: string[];
     conversionInsight?: {
@@ -867,6 +881,7 @@ export function App() {
                             <Text as="span" variant="bodySm">{session.paymentMethod || "Unknown"}</Text>
                             <Text as="span" variant="bodyXs" tone="subdued">Attempts sent: {session.attemptCount}</Text>
                             <Text as="span" variant="bodyXs" tone="subdued">Next: {formatDateTime(session.nextAttemptAt)}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">{session.recoveryStage || "Awaiting first retry"}</Text>
                           </BlockStack>
                         </IndexTable.Cell>
                         <IndexTable.Cell>
@@ -933,6 +948,7 @@ export function App() {
                               <Text as="p" variant="bodySm" tone="subdued">Buyer engagement</Text>
                               <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.engagement?.opens || 0} opens / {selectedSession.engagement?.clicks || 0} clicks</Text>
                               <Text as="p" variant="bodySm" tone="subdued">{selectedSession.operatorAction?.lastAction ? `Last manual action: ${selectedSession.operatorAction.lastAction.replace("_", " ")}` : "No operator escalation yet."}</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">Recovery status: {selectedSession.recoveryStage || "Awaiting first retry"}</Text>
                             </BlockStack>
                           </Card>
                           <Card padding="400">
@@ -963,6 +979,24 @@ export function App() {
                               <Text as="p" variant="bodySm" tone="subdued">
                                 {(selectedSession.conversionInsight?.reasons || ["Limited signal coverage so far."]).join(" | ")}
                               </Text>
+                              <Text as="p" variant="bodySm" tone="subdued">
+                                Store history: {(selectedSession.customerInsight?.historicalOrderCount || 0)} prior orders / {formatCurrency(selectedSession.customerInsight?.historicalSpendAmount || 0)} lifetime.
+                              </Text>
+                            </BlockStack>
+                          </Card>
+                          <Card padding="400">
+                            <BlockStack gap="200">
+                              <Text as="p" variant="bodySm" tone="subdued">Attempt timeline</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">Payment reached: {formatDateTime(selectedSession.failedAt)}</Text>
+                              {selectedSession.deliveryAttempts && selectedSession.deliveryAttempts.length > 0 ? (
+                                selectedSession.deliveryAttempts.map((attempt) => (
+                                  <Text key={attempt.id} as="p" variant="bodySm" tone="subdued">
+                                    {`${formatDateTime(attempt.createdAt)}: ${attempt.channel.toUpperCase()} ${deliveryLabel(attempt.status)}`}
+                                  </Text>
+                                ))
+                              ) : (
+                                <Text as="p" variant="bodySm" tone="subdued">No retry attempt sent yet.</Text>
+                              )}
                             </BlockStack>
                           </Card>
                         </div>

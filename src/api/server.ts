@@ -33,6 +33,7 @@ import {
 } from "../services/recoveryIntelligence";
 import { getDiscountSync, saveDiscountSync } from "../services/discountSyncStore";
 import { buildDraftTheme, type DraftMode } from "../services/aiDraftService";
+import { getShopifyCustomerInsight } from "../services/shopifyCustomerInsightService";
 
 const app = express();
 app.set("trust proxy", true);
@@ -211,6 +212,7 @@ function buildConversionInsight(session: {
   engagement?: { opens: number; clicks: number };
   operatorAction?: { lastAction: string };
   deliveryStatus?: { emailStatus?: string; smsStatus?: string };
+  customerInsight?: { historicalOrderCount: number; historicalSpendAmount: number };
 }) {
   let score = 35;
   const reasons: string[] = [];
@@ -226,6 +228,14 @@ function buildConversionInsight(session: {
   if (session.customerSegment === "returning" || session.customerSegment === "vip") {
     score += 16;
     reasons.push("Repeat buyer behavior");
+  }
+
+  if ((session.customerInsight?.historicalOrderCount || 0) >= 3) {
+    score += 12;
+    reasons.push("Strong store purchase history");
+  } else if ((session.customerInsight?.historicalOrderCount || 0) >= 1) {
+    score += 6;
+    reasons.push("Known customer in store");
   }
 
   if ((session.engagement?.opens || 0) > 0) {
@@ -273,6 +283,19 @@ function buildConversionInsight(session: {
     band,
     reasons: reasons.slice(0, 4)
   };
+}
+
+function buildRecoveryStage(session: {
+  state: string;
+  attemptCount: number;
+  nextAttemptAt?: string;
+}) {
+  if (session.state === "RECOVERED") return "Recovered";
+  if (session.state === "EXPIRED") return "Expired";
+  if (session.state === "UNSUBSCRIBED") return "Suppressed";
+  if (session.attemptCount === 0) return "Awaiting first retry";
+  if (session.nextAttemptAt) return "Retry scheduled";
+  return "Retry complete";
 }
 
 app.get("/", (req, res, next) => {
@@ -424,13 +447,15 @@ app.get("/platform", async (_req, res) => {
   const sessions = await runtime.recent(50);
   const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
   const activeCampaign = await getCurrentCampaign();
-  const enrichedSessions = sessions.map((session) => {
+  const enrichedSessions = await Promise.all(sessions.map(async (session) => {
     const campaign = campaignById.get(session.campaignId || "") || activeCampaign;
     const operatorAction = getOperatorAction(session.checkoutToken, session.shopDomain);
     const offer = getRecoveryOffer(session.checkoutToken, session.shopDomain);
     const engagement = getEngagement(session.checkoutToken, session.shopDomain);
     const deliveryStatus = getDeliveryStatus(session.checkoutToken, session.shopDomain);
     const discountSync = getDiscountSync(session.checkoutToken, session.shopDomain);
+    const customerInsight = await getShopifyCustomerInsight(session.shopDomain, session.email);
+    const deliveryAttempts = await store.listDeliveryAttempts(session.id);
     const retryStrategy = resolveRetryTarget({
       shopDomain: session.shopDomain,
       destination: campaign.experience.destination,
@@ -447,6 +472,9 @@ app.get("/platform", async (_req, res) => {
       engagement,
       deliveryStatus,
       discountSync,
+      customerInsight,
+      recoveryStage: buildRecoveryStage(session),
+      deliveryAttempts,
       retryStrategy,
       recommendedPaymentOptions: recommendedPaymentOptions(session.paymentMethod),
       conversionInsight: buildConversionInsight({
@@ -457,10 +485,11 @@ app.get("/platform", async (_req, res) => {
         attemptCount: session.attemptCount,
         engagement,
         operatorAction,
-        deliveryStatus
+        deliveryStatus,
+        customerInsight: customerInsight || undefined
       })
     };
-  });
+  }));
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
     .flatMap((campaign) => campaign.steps)
