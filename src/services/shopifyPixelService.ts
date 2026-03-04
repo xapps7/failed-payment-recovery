@@ -11,26 +11,21 @@ export async function getShopifyWebPixelStatus(
 
   const existing = await postAdminGraphql<{
     data?: {
-      webPixels?: {
-        nodes?: Array<{ id: string }>;
-      };
+      webPixel?: { id: string };
     };
   }>(
     shopDomain,
     accessToken,
     `
-      query RetrylyWebPixels {
-        webPixels(first: 10) {
-          nodes { id }
+      query RetrylyWebPixel {
+        webPixel {
+          id
         }
       }
     `
-  ).catch((error) => ({
-    data: { webPixels: { nodes: [] } },
-    error
-  }));
+  ).catch(() => ({ data: { webPixel: undefined } }));
 
-  const existingPixelId = existing.data?.webPixels?.nodes?.[0]?.id;
+  const existingPixelId = existing.data?.webPixel?.id;
   return {
     active: Boolean(existingPixelId),
     pixelId: existingPixelId,
