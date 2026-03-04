@@ -48,7 +48,10 @@ const store = new InMemoryRecoveryStore();
 const runtime = new RecoveryRuntime(
   store,
   new ProviderNotifier(() => readAppSettings(), () => getCurrentCampaign()),
-  () => [15, 360, 1440],
+  async () => {
+    const settings = await readAppSettings();
+    return settings.retryMinutes.length ? settings.retryMinutes : [1, 360, 1440];
+  },
   () => getCurrentCampaign()
 );
 const dueJobIntervalMs = Math.max(Number(env.DUE_JOB_INTERVAL_SECONDS || 60), 15) * 1000;
@@ -199,6 +202,79 @@ function renderAppShell(req: express.Request, res: express.Response, embedded = 
   return res.status(200).type("html").send(injected);
 }
 
+function buildConversionInsight(session: {
+  state: string;
+  amountSubtotal?: number;
+  customerSegment?: string;
+  paymentMethod?: string;
+  attemptCount: number;
+  engagement?: { opens: number; clicks: number };
+  operatorAction?: { lastAction: string };
+  deliveryStatus?: { emailStatus?: string; smsStatus?: string };
+}) {
+  let score = 35;
+  const reasons: string[] = [];
+
+  if ((session.amountSubtotal || 0) >= 200) {
+    score += 18;
+    reasons.push("Higher order value");
+  } else if ((session.amountSubtotal || 0) >= 75) {
+    score += 10;
+    reasons.push("Healthy order value");
+  }
+
+  if (session.customerSegment === "returning" || session.customerSegment === "vip") {
+    score += 16;
+    reasons.push("Repeat buyer behavior");
+  }
+
+  if ((session.engagement?.opens || 0) > 0) {
+    score += 12;
+    reasons.push("Opened recovery message");
+  }
+
+  if ((session.engagement?.clicks || 0) > 0) {
+    score += 18;
+    reasons.push("Clicked retry link");
+  }
+
+  if (session.paymentMethod && session.paymentMethod !== "other") {
+    score += 8;
+    reasons.push("Recognized payment method");
+  }
+
+  if (session.deliveryStatus?.emailStatus === "delivered" || session.deliveryStatus?.smsStatus === "delivered") {
+    score += 6;
+    reasons.push("Message delivered");
+  }
+
+  if (session.operatorAction?.lastAction === "mark_contacted") {
+    score += 6;
+    reasons.push("Merchant outreach started");
+  }
+
+  if (session.attemptCount >= 2) {
+    score -= 10;
+    reasons.push("Multiple attempts already used");
+  }
+
+  if (session.state === "EXPIRED" || session.state === "UNSUBSCRIBED") {
+    score -= 35;
+    reasons.push("Recovery window is constrained");
+  } else if (session.state === "RECOVERED") {
+    score = 100;
+    reasons.unshift("Already converted");
+  }
+
+  const normalized = Math.max(0, Math.min(100, Math.round(score)));
+  const band = normalized >= 75 ? "High" : normalized >= 45 ? "Medium" : "Low";
+  return {
+    score: normalized,
+    band,
+    reasons: reasons.slice(0, 4)
+  };
+}
+
 app.get("/", (req, res, next) => {
   if ((req.headers.accept || "").includes("text/html") || req.query.embedded || req.query.shop || req.query.host) {
     return renderAppShell(req, res, true);
@@ -345,26 +421,46 @@ app.get("/platform", async (_req, res) => {
   const metrics = await runtime.metrics();
   const settings = await readAppSettings();
   const campaigns = await listRecoveryCampaigns();
-  const sessions = await runtime.recent(12);
+  const sessions = await runtime.recent(50);
   const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
   const activeCampaign = await getCurrentCampaign();
-  const enrichedSessions = sessions.map((session) => ({
-    ...session,
-    campaignName: session.campaignId ? (campaignById.get(session.campaignId)?.name || activeCampaign.name) : activeCampaign.name,
-    operatorAction: getOperatorAction(session.checkoutToken, session.shopDomain),
-    offer: getRecoveryOffer(session.checkoutToken, session.shopDomain),
-    engagement: getEngagement(session.checkoutToken, session.shopDomain),
-    deliveryStatus: getDeliveryStatus(session.checkoutToken, session.shopDomain),
-    discountSync: getDiscountSync(session.checkoutToken, session.shopDomain),
-    retryStrategy: resolveRetryTarget({
+  const enrichedSessions = sessions.map((session) => {
+    const campaign = campaignById.get(session.campaignId || "") || activeCampaign;
+    const operatorAction = getOperatorAction(session.checkoutToken, session.shopDomain);
+    const offer = getRecoveryOffer(session.checkoutToken, session.shopDomain);
+    const engagement = getEngagement(session.checkoutToken, session.shopDomain);
+    const deliveryStatus = getDeliveryStatus(session.checkoutToken, session.shopDomain);
+    const discountSync = getDiscountSync(session.checkoutToken, session.shopDomain);
+    const retryStrategy = resolveRetryTarget({
       shopDomain: session.shopDomain,
-      destination: (campaignById.get(session.campaignId || "") || activeCampaign).experience.destination,
+      destination: campaign.experience.destination,
       checkoutUrl: getRecoveryPayload(session.checkoutToken, session.shopDomain)?.checkoutUrl,
       cartUrl: getRecoveryPayload(session.checkoutToken, session.shopDomain)?.cartUrl,
       lineItems: getRecoveryPayload(session.checkoutToken, session.shopDomain)?.lineItems
-    }).strategy,
-    recommendedPaymentOptions: recommendedPaymentOptions(session.paymentMethod)
-  }));
+    }).strategy;
+
+    return {
+      ...session,
+      campaignName: session.campaignId ? (campaignById.get(session.campaignId)?.name || activeCampaign.name) : activeCampaign.name,
+      operatorAction,
+      offer,
+      engagement,
+      deliveryStatus,
+      discountSync,
+      retryStrategy,
+      recommendedPaymentOptions: recommendedPaymentOptions(session.paymentMethod),
+      conversionInsight: buildConversionInsight({
+        state: session.state,
+        amountSubtotal: session.amountSubtotal,
+        customerSegment: session.customerSegment,
+        paymentMethod: session.paymentMethod,
+        attemptCount: session.attemptCount,
+        engagement,
+        operatorAction,
+        deliveryStatus
+      })
+    };
+  });
   const recoveryRate = metrics.detected ? Number(((metrics.recovered / metrics.detected) * 100).toFixed(1)) : 0;
   const channelMix = campaigns
     .flatMap((campaign) => campaign.steps)

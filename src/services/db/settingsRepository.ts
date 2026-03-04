@@ -44,7 +44,7 @@ export async function readAppSettings(): Promise<AppSettings> {
     accentColor: row.accentColor,
     sendEmail: row.sendEmail,
     sendSms: row.sendSms,
-    retryMinutes: Array.isArray(row.retryMinutes) ? (row.retryMinutes as number[]) : [15, 360, 1440]
+    retryMinutes: Array.isArray(row.retryMinutes) ? (row.retryMinutes as number[]) : [1, 360, 1440]
   };
 }
 

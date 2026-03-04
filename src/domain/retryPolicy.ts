@@ -2,7 +2,7 @@ import type { RetryPolicy } from "./types";
 
 export const defaultRetryPolicy: RetryPolicy = {
   maxAttempts: 3,
-  minutesAfterFailure: [15, 360, 1440]
+  minutesAfterFailure: [1, 360, 1440]
 };
 
 export function nextAttemptAt(

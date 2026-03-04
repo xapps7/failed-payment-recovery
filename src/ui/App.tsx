@@ -25,6 +25,7 @@ type CampaignStatus = "ACTIVE" | "DRAFT" | "PAUSED";
 type CampaignTone = "steady" | "urgent" | "concierge" | "rescue";
 type CampaignChannel = "email" | "sms";
 type AppSection = "overview" | "campaigns" | "feed" | "settings";
+type FeedFilter = "all" | "high" | "active" | "recovered" | "attention";
 
 type PlatformPayload = {
   commandCenter: {
@@ -122,6 +123,11 @@ type PlatformPayload = {
     };
     retryStrategy?: string;
     recommendedPaymentOptions?: string[];
+    conversionInsight?: {
+      score: number;
+      band: "High" | "Medium" | "Low";
+      reasons: string[];
+    };
   }>;
   insights: {
     activeCampaign: string;
@@ -147,7 +153,7 @@ const emptyPayload: PlatformPayload = {
     accentColor: "#0f766e",
     sendEmail: true,
     sendSms: false,
-    retryMinutes: [15, 360, 1440]
+    retryMinutes: [1, 360, 1440]
   },
   campaigns: [],
   sessions: [],
@@ -165,6 +171,18 @@ function formatCurrency(value: number): string {
     currency: "USD",
     maximumFractionDigits: 0
   }).format(value);
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return "Not yet";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Not yet";
+  return parsed.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 function stateLabel(state: SessionState): string {
@@ -225,6 +243,7 @@ export function App() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [section, setSection] = useState<AppSection>("overview");
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
   const [activatingPixel, setActivatingPixel] = useState(false);
 
   useEffect(() => {
@@ -249,6 +268,30 @@ export function App() {
     () => data.sessions.find((session) => session.id === selectedSessionId) || data.sessions[0],
     [data.sessions, selectedSessionId]
   );
+
+  const filteredSessions = useMemo(() => {
+    const sorted = [...data.sessions].sort((left, right) => {
+      const leftScore = left.conversionInsight?.score || 0;
+      const rightScore = right.conversionInsight?.score || 0;
+      if (rightScore !== leftScore) return rightScore - leftScore;
+      return new Date(right.failedAt || 0).getTime() - new Date(left.failedAt || 0).getTime();
+    });
+
+    return sorted.filter((session) => {
+      switch (feedFilter) {
+        case "high":
+          return (session.conversionInsight?.score || 0) >= 75;
+        case "active":
+          return session.state === "LIKELY_FAILED_PAYMENT";
+        case "recovered":
+          return session.state === "RECOVERED";
+        case "attention":
+          return session.state === "LIKELY_FAILED_PAYMENT" && (session.attemptCount >= 2 || session.operatorAction?.lastAction === "escalate_support");
+        default:
+          return true;
+      }
+    });
+  }, [data.sessions, feedFilter]);
 
   async function saveCampaign() {
     if (!selectedCampaign) return;
@@ -449,7 +492,9 @@ export function App() {
     </Banner>
   ) : null;
 
-  const prioritySessions = data.sessions.slice(0, 4);
+  const prioritySessions = [...data.sessions]
+    .sort((left, right) => (right.conversionInsight?.score || 0) - (left.conversionInsight?.score || 0))
+    .slice(0, 4);
 
   return (
     <Page fullWidth>
@@ -745,17 +790,42 @@ export function App() {
             <Card>
               <BlockStack gap="400">
                 {saveBanner}
-                <Text as="h3" variant="headingMd">Recovery Feed</Text>
-                {data.sessions.length === 0 ? (
+                <InlineStack align="space-between" blockAlign="center">
+                  <BlockStack gap="100">
+                    <InlineStack gap="100" blockAlign="center">
+                      <Text as="h3" variant="headingMd">Recovery Feed</Text>
+                      <Tip content="This is the operating table for every tracked failed-payment and recovery effort, including active, recovered, expired, and suppressed sessions." />
+                    </InlineStack>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      All tracked recovery attempts, merchant actions, delivery status, and conversion priority in one table.
+                    </Text>
+                  </BlockStack>
+                  <Box minWidth="220px">
+                    <Select
+                      label="Feed filter"
+                      labelHidden
+                      options={[
+                        { label: "All tracked sessions", value: "all" },
+                        { label: "High conversion fit", value: "high" },
+                        { label: "Active recoveries", value: "active" },
+                        { label: "Recovered orders", value: "recovered" },
+                        { label: "Needs attention", value: "attention" }
+                      ]}
+                      value={feedFilter}
+                      onChange={(value) => setFeedFilter(value as FeedFilter)}
+                    />
+                  </Box>
+                </InlineStack>
+                {filteredSessions.length === 0 ? (
                   <Text as="p" variant="bodyMd" tone="subdued">No failed sessions yet.</Text>
                 ) : (
                   <IndexTable
                     selectable={false}
-                    itemCount={data.sessions.length}
+                    itemCount={filteredSessions.length}
                     resourceName={{ singular: "failed payment session", plural: "failed payment sessions" }}
                     headings={[
                       { title: "Order" },
-                      { title: "Campaign" },
+                      { title: "Priority" },
                       { title: "Payment" },
                       { title: "Delivery" },
                       { title: "Engagement" },
@@ -763,19 +833,26 @@ export function App() {
                       { title: "Actions" }
                     ]}
                   >
-                    {data.sessions.map((session, index) => (
+                    {filteredSessions.map((session, index) => (
                       <IndexTable.Row id={session.id} key={session.id} position={index} onClick={() => setSelectedSessionId(session.id)}>
                         <IndexTable.Cell>
                           <BlockStack gap="100">
                             <Text as="span" variant="bodySm" fontWeight="semibold">{session.checkoutToken}</Text>
                             <Text as="span" variant="bodyXs" tone="subdued">{session.email || session.phone || "No reachable contact"}</Text>
                             <Text as="span" variant="bodyXs" tone="subdued">{formatCurrency(session.amountSubtotal || 0)} {session.countryCode || "--"} / {session.customerSegment || "all"}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">Last update: {formatDateTime(session.nextAttemptAt || session.failedAt)}</Text>
                           </BlockStack>
                         </IndexTable.Cell>
                         <IndexTable.Cell>
                           <BlockStack gap="100">
-                            <Text as="span" variant="bodySm">{session.campaignName}</Text>
-                            <Text as="span" variant="bodyXs" tone="subdued">{session.offer ? `Offer ${session.offer.code}` : "No offer yet"}</Text>
+                            <InlineStack gap="100" blockAlign="center">
+                              <Badge tone={session.conversionInsight?.band === "High" ? "success" : session.conversionInsight?.band === "Medium" ? "warning" : "info"}>
+                                {session.conversionInsight?.band || "Low"}
+                              </Badge>
+                              <Text as="span" variant="bodySm" fontWeight="semibold">{`${session.conversionInsight?.score || 0}/100`}</Text>
+                            </InlineStack>
+                            <Text as="span" variant="bodyXs" tone="subdued">{session.campaignName}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">{session.conversionInsight?.reasons[0] || "Standard recovery profile"}</Text>
                             <Text as="span" variant="bodyXs" tone={session.discountSync?.status === "failed" ? "critical" : "subdued"}>
                               {session.discountSync?.status === "synced"
                                 ? "Shopify discount synced"
@@ -788,7 +865,8 @@ export function App() {
                         <IndexTable.Cell>
                           <BlockStack gap="100">
                             <Text as="span" variant="bodySm">{session.paymentMethod || "Unknown"}</Text>
-                            <Text as="span" variant="bodyXs" tone="subdued">Attempt {session.attemptCount + 1}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">Attempts sent: {session.attemptCount}</Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">Next: {formatDateTime(session.nextAttemptAt)}</Text>
                           </BlockStack>
                         </IndexTable.Cell>
                         <IndexTable.Cell>
@@ -840,6 +918,7 @@ export function App() {
                               <Text as="p" variant="bodyMd" fontWeight="semibold">{selectedSession.campaignName}</Text>
                               <Text as="p" variant="bodySm" tone="subdued">{selectedSession.paymentMethod || "Unknown payment method"} routed through {selectedCampaign?.experience.destination || "checkout"}.</Text>
                               <Text as="p" variant="bodySm" tone="subdued">Retry strategy: {selectedSession.retryStrategy || "Pending route resolution"}</Text>
+                              <Text as="p" variant="bodySm" tone="subdued">Attempts sent: {selectedSession.attemptCount} | Next attempt: {formatDateTime(selectedSession.nextAttemptAt)}</Text>
                             </BlockStack>
                           </Card>
                           <Card padding="400">
@@ -870,6 +949,20 @@ export function App() {
                                       : "Generate an offer if this session needs incentive recovery."}
                               </Text>
                               <Text as="p" variant="bodySm" tone="subdued">Suggested fallback methods: {selectedSession.recommendedPaymentOptions?.join(", ") || "Credit card, Shop Pay, PayPal"}</Text>
+                            </BlockStack>
+                          </Card>
+                          <Card padding="400">
+                            <BlockStack gap="200">
+                              <Text as="p" variant="bodySm" tone="subdued">Conversion fit</Text>
+                              <InlineStack gap="100" blockAlign="center">
+                                <Badge tone={selectedSession.conversionInsight?.band === "High" ? "success" : selectedSession.conversionInsight?.band === "Medium" ? "warning" : "info"}>
+                                  {selectedSession.conversionInsight?.band || "Low"}
+                                </Badge>
+                                <Text as="p" variant="bodyMd" fontWeight="semibold">{`${selectedSession.conversionInsight?.score || 0}/100`}</Text>
+                              </InlineStack>
+                              <Text as="p" variant="bodySm" tone="subdued">
+                                {(selectedSession.conversionInsight?.reasons || ["Limited signal coverage so far."]).join(" | ")}
+                              </Text>
                             </BlockStack>
                           </Card>
                         </div>

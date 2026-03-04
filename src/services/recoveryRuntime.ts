@@ -4,13 +4,11 @@ import type { RecoveryStore } from "./recoveryStore";
 import { processRecoveryAttempt } from "../workers/recoveryWorker";
 import type { RecoveryCampaign } from "./campaignStore";
 
-const FAILURE_WINDOW_MS = 15 * 60 * 1000;
-
 export class RecoveryRuntime {
   constructor(
     private readonly store: RecoveryStore,
     private readonly notifier: Notifier,
-    private readonly getRetryMinutes: () => number[] = () => [15, 360, 1440],
+    private readonly getRetryMinutes: () => number[] | Promise<number[]> = () => [1, 360, 1440],
     private readonly getActiveCampaign?: () => Promise<RecoveryCampaign> | RecoveryCampaign
   ) {}
 
@@ -44,9 +42,13 @@ export class RecoveryRuntime {
       }
     }
 
+    const retryMinutes = campaign
+      ? campaign.steps.map((step) => step.delayMinutes)
+      : await Promise.resolve(this.getRetryMinutes());
+    const firstDelayMinutes = retryMinutes[0] ?? 1;
     const submittedAt = new Date(signal.paymentInfoSubmittedAt).getTime();
     const nextAttemptAt = Number.isFinite(submittedAt)
-      ? new Date(submittedAt + FAILURE_WINDOW_MS).toISOString()
+      ? new Date(submittedAt + firstDelayMinutes * 60_000).toISOString()
       : nowIso;
 
     await this.store.upsertFailedSession({
@@ -75,11 +77,12 @@ export class RecoveryRuntime {
   async runDue(nowIso: string): Promise<number> {
     const due = await this.store.listDue(nowIso);
     const campaign = this.getActiveCampaign ? await Promise.resolve(this.getActiveCampaign()) : undefined;
+    const defaultRetryMinutes = await Promise.resolve(this.getRetryMinutes());
 
     for (const session of due) {
       const retryMinutes = campaign
         ? campaign.steps.map((step) => step.delayMinutes)
-        : this.getRetryMinutes();
+        : defaultRetryMinutes;
       const activeStep = campaign?.steps[Math.min(session.attemptCount, campaign.steps.length - 1)];
       const result = await processRecoveryAttempt(session, nowIso, {
         sendEmail: (s) => this.notifier.sendEmail(s),
