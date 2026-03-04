@@ -261,6 +261,7 @@ export function App() {
   const [pixelActive, setPixelActive] = useState(false);
   const [pixelStatusMessage, setPixelStatusMessage] = useState("Checking pixel status...");
   const [activatingPixel, setActivatingPixel] = useState(false);
+  const [creatingTestSession, setCreatingTestSession] = useState(false);
 
   useEffect(() => {
     void refresh();
@@ -457,6 +458,42 @@ export function App() {
     updateSelectedCampaign((campaign) => ({ ...campaign, theme: payload.theme }));
     setSaveState("AI draft applied. Review before saving.");
     setSaveScope("campaigns");
+  }
+
+  async function createTestFailedPayment() {
+    const shopDomain = appConfig?.shop || data.sessions[0]?.shopDomain || "";
+    if (!shopDomain) {
+      setSaveState("Missing shop domain for test session.");
+      setSaveScope("settings");
+      return;
+    }
+
+    const email = window.prompt("Recovery test email", "")?.trim() || "";
+    const phone = window.prompt("Recovery test phone (optional)", "")?.trim() || "";
+
+    setCreatingTestSession(true);
+    setSaveState("");
+    setSaveScope("");
+    const response = await fetch("/dev/test-failed-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shopDomain,
+        email: email || undefined,
+        phone: phone || undefined
+      })
+    });
+    const payload = (await response.json()) as { checkoutToken?: string; message?: string; error?: unknown };
+    setCreatingTestSession(false);
+    if (!response.ok) {
+      setSaveState("Could not create test failed-payment session.");
+      setSaveScope("settings");
+      return;
+    }
+    await refresh();
+    setSection("feed");
+    setSaveState(payload.checkoutToken ? `Test session ${payload.checkoutToken} created.` : payload.message || "Test session created.");
+    setSaveScope("feed");
   }
 
   function updateSelectedCampaign(
@@ -1086,6 +1123,22 @@ export function App() {
                         {pixelActive ? "Re-activate store pixel" : "Activate store pixel"}
                       </Button>
                       <Text as="p" variant="bodySm" tone="subdued">{pixelStatusMessage}</Text>
+                    </InlineStack>
+                  </BlockStack>
+                </Card>
+
+                <Card background="bg-surface-secondary" padding="400">
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <BlockStack gap="100">
+                        <Text as="h4" variant="headingSm">Recovery testing</Text>
+                        <Text as="p" variant="bodySm" tone="subdued">Create a deterministic failed-payment session without relying on checkout pixel capture.</Text>
+                      </BlockStack>
+                      <Tip content="This creates a test failed-payment event that is already due, so the scheduler can send recovery quickly and populate Recovery Feed immediately." />
+                    </InlineStack>
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Button onClick={() => void createTestFailedPayment()} loading={creatingTestSession}>Create test failed payment</Button>
+                      <Text as="p" variant="bodySm" tone="subdued">Use this while Shopify checkout signal capture is being debugged.</Text>
                     </InlineStack>
                   </BlockStack>
                 </Card>

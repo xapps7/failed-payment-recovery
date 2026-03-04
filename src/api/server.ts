@@ -126,6 +126,12 @@ const pixelActivationSchema = z.object({
   shopDomain: z.string().min(1).optional()
 });
 
+const devTestFailedSchema = z.object({
+  shopDomain: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().optional()
+});
+
 const campaignSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
@@ -728,6 +734,52 @@ app.get("/pixels/status", async (req, res) => {
 
 app.get("/pixels/debug", (_req, res) => {
   return res.status(200).json({ events: listPixelDebugEvents() });
+});
+
+app.post("/dev/test-failed-payment", async (req, res) => {
+  const parsed = devTestFailedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const shopDomain = parsed.data.shopDomain || env.SHOP_DOMAIN;
+  if (!shopDomain) {
+    return res.status(400).json({ error: "Missing shopDomain" });
+  }
+
+  const paymentInfoSubmittedAt = new Date(Date.now() - 2 * 60_000).toISOString();
+  const checkoutToken = `chk_test_${crypto.randomUUID().slice(0, 8)}`;
+
+  saveRecoveryPayload({
+    checkoutToken,
+    shopDomain,
+    checkoutUrl: `https://${shopDomain}/checkouts/${checkoutToken}`,
+    cartUrl: `https://${shopDomain}/cart`,
+    lineItems: [],
+    currencyCode: "USD",
+    paymentMethod: "credit_card",
+    paymentFailureLabel: "manual_test",
+    updatedAt: new Date().toISOString()
+  });
+
+  await runtime.ingestSignal({
+    checkoutToken,
+    shopDomain,
+    email: parsed.data.email,
+    phone: parsed.data.phone,
+    amountSubtotal: 129,
+    countryCode: "US",
+    customerSegment: "returning",
+    paymentMethod: "credit_card",
+    paymentInfoSubmittedAt
+  }, new Date().toISOString());
+
+  return res.status(202).json({
+    ok: true,
+    checkoutToken,
+    paymentInfoSubmittedAt,
+    message: "Test failed-payment session created."
+  });
 });
 
 app.post("/webhooks/sendgrid/events", (req, res) => {
