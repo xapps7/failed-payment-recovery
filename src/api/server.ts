@@ -34,6 +34,7 @@ import {
 import { getDiscountSync, saveDiscountSync } from "../services/discountSyncStore";
 import { buildDraftTheme, type DraftMode } from "../services/aiDraftService";
 import { getShopifyCustomerInsight } from "../services/shopifyCustomerInsightService";
+import { listPixelDebugEvents, recordPixelDebug } from "../services/pixelDebugStore";
 
 const app = express();
 app.set("trust proxy", true);
@@ -602,10 +603,20 @@ app.post("/events/payment-info-submitted", async (req, res) => {
 app.post("/events/web-pixel", async (req, res) => {
   const parsed = webPixelSchema.safeParse(req.body);
   if (!parsed.success) {
+    recordPixelDebug({
+      kind: "rejected",
+      payload: req.body,
+      reason: JSON.stringify(parsed.error.flatten())
+    });
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
   const { eventName, payload } = parsed.data;
+  recordPixelDebug({
+    kind: "accepted",
+    eventName,
+    payload
+  });
   if (eventName === "checkout_completed" && payload.orderId) {
     await runtime.markCheckoutRecovered(payload.checkoutToken, payload.orderId, payload.shopDomain);
     return res.status(202).json({ ok: true, handled: eventName });
@@ -703,6 +714,10 @@ app.post("/pixels/activate", async (req, res) => {
   const result = await activateShopifyWebPixel(shopDomain);
   const statusCode = result.activated ? 200 : 422;
   return res.status(statusCode).json(result);
+});
+
+app.get("/pixels/debug", (_req, res) => {
+  return res.status(200).json({ events: listPixelDebugEvents() });
 });
 
 app.post("/webhooks/sendgrid/events", (req, res) => {

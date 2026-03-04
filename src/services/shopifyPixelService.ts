@@ -9,6 +9,74 @@ export async function activateShopifyWebPixel(
     return { activated: false, reason: "Missing shop access token" };
   }
 
+  const settings = JSON.stringify({
+    endpoint: `${appBaseUrl()}/events/web-pixel`,
+    shopDomain
+  });
+
+  const existing = await postAdminGraphql<{
+    data?: {
+      webPixels?: {
+        nodes?: Array<{ id: string }>;
+      };
+    };
+  }>(
+    shopDomain,
+    accessToken,
+    `
+      query RetrylyWebPixels {
+        webPixels(first: 10) {
+          nodes { id }
+        }
+      }
+    `
+  ).catch(() => ({ data: { webPixels: { nodes: [] } } }));
+
+  const existingPixelId = existing.data?.webPixels?.nodes?.[0]?.id;
+
+  if (existingPixelId) {
+    const updateResponse = await postAdminGraphql<{
+      data?: {
+        webPixelUpdate?: {
+          userErrors?: Array<{ message: string }>;
+          webPixel?: { id: string };
+        };
+      };
+    }>(
+      shopDomain,
+      accessToken,
+      `
+        mutation webPixelUpdate($id: ID!, $webPixel: WebPixelInput!) {
+          webPixelUpdate(id: $id, webPixel: $webPixel) {
+            userErrors { message }
+            webPixel { id }
+          }
+        }
+      `,
+      {
+        id: existingPixelId,
+        webPixel: { settings }
+      }
+    ).catch((error) => ({
+      data: {
+        webPixelUpdate: {
+          userErrors: [{ message: error instanceof Error ? error.message : "Unknown error" }],
+          webPixel: undefined
+        }
+      }
+    }));
+
+    const updatePayload = updateResponse.data?.webPixelUpdate;
+    const updatePixel = updatePayload?.webPixel;
+    const updateErrors = updatePayload?.userErrors || [];
+    if (updatePixel && updateErrors.length === 0) {
+      return {
+        activated: true,
+        pixelId: updatePixel.id
+      };
+    }
+  }
+
   const response = await postAdminGraphql<{
     data?: {
       webPixelCreate?: {
@@ -29,10 +97,7 @@ export async function activateShopifyWebPixel(
     `,
     {
       webPixel: {
-        settings: JSON.stringify({
-          endpoint: `${appBaseUrl()}/events/web-pixel`,
-          shopDomain
-        })
+        settings
       }
     }
   ).catch((error) => ({
