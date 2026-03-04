@@ -258,6 +258,8 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [section, setSection] = useState<AppSection>("overview");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
+  const [pixelActive, setPixelActive] = useState(false);
+  const [pixelStatusMessage, setPixelStatusMessage] = useState("Checking pixel status...");
   const [activatingPixel, setActivatingPixel] = useState(false);
 
   useEffect(() => {
@@ -270,7 +272,27 @@ export function App() {
     setData(payload);
     setSelectedCampaignId((current) => current || payload.campaigns[0]?.id || "");
     setSelectedSessionId((current) => current || payload.sessions[0]?.id || "");
+    await refreshPixelStatus(payload.sessions[0]?.shopDomain || appConfig?.shop || "");
     setLoading(false);
+  }
+
+  async function refreshPixelStatus(shopDomain: string) {
+    if (!shopDomain) {
+      setPixelActive(false);
+      setPixelStatusMessage("No connected shop.");
+      return;
+    }
+
+    const response = await fetch(`/pixels/status?shopDomain=${encodeURIComponent(shopDomain)}`);
+    if (!response.ok) {
+      setPixelActive(false);
+      setPixelStatusMessage("Could not verify pixel status.");
+      return;
+    }
+
+    const payload = (await response.json()) as { active?: boolean; pixelId?: string; reason?: string };
+    setPixelActive(Boolean(payload.active));
+    setPixelStatusMessage(payload.active ? `Registered pixel: ${payload.pixelId}` : payload.reason || "Pixel not registered.");
   }
 
   const selectedCampaign = useMemo(
@@ -409,6 +431,10 @@ export function App() {
     setActivatingPixel(false);
     setSaveState(response.ok ? "Web pixel activated for this store." : payload.reason || "Web pixel activation failed.");
     setSaveScope("settings");
+    if (response.ok) {
+      setPixelActive(true);
+      await refreshPixelStatus(shopDomain);
+    }
   }
 
   async function applyAiDraft(mode: "urgent" | "concierge" | "concise") {
@@ -1056,8 +1082,10 @@ export function App() {
                       <Tip content="Use this after reinstall so the store grants pixel scopes. The app will try to create the web pixel registration for this shop." />
                     </InlineStack>
                     <InlineStack align="space-between" blockAlign="center">
-                      <Button onClick={() => void activatePixel()} loading={activatingPixel}>Activate store pixel</Button>
-                      <Text as="p" variant="bodySm" tone="subdued">Reinstall the app after scope changes.</Text>
+                      <Button onClick={() => void activatePixel()} loading={activatingPixel}>
+                        {pixelActive ? "Re-activate store pixel" : "Activate store pixel"}
+                      </Button>
+                      <Text as="p" variant="bodySm" tone="subdued">{pixelStatusMessage}</Text>
                     </InlineStack>
                   </BlockStack>
                 </Card>

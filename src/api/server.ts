@@ -24,7 +24,7 @@ import { recordProviderEvent } from "../services/providerEventStore";
 import { getEngagement, recordClick, recordOpen } from "../services/engagementStore";
 import { getDeliveryStatus, saveDeliveryStatus } from "../services/deliveryStatusStore";
 import { createShopifyDiscountCode } from "../services/shopifyDiscountService";
-import { activateShopifyWebPixel } from "../services/shopifyPixelService";
+import { activateShopifyWebPixel, getShopifyWebPixelStatus } from "../services/shopifyPixelService";
 import {
   normalizeCountryCode,
   normalizePaymentMethod,
@@ -714,6 +714,16 @@ app.post("/pixels/activate", async (req, res) => {
   const result = await activateShopifyWebPixel(shopDomain);
   const statusCode = result.activated ? 200 : 422;
   return res.status(statusCode).json(result);
+});
+
+app.get("/pixels/status", async (req, res) => {
+  const shopDomain = (typeof req.query.shopDomain === "string" && req.query.shopDomain) || env.SHOP_DOMAIN;
+  if (!shopDomain) {
+    return res.status(400).json({ error: "Missing shopDomain" });
+  }
+
+  const result = await getShopifyWebPixelStatus(shopDomain);
+  return res.status(200).json(result);
 });
 
 app.get("/pixels/debug", (_req, res) => {

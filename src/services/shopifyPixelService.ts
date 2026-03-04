@@ -1,18 +1,13 @@
 import { appBaseUrl } from "../config/env";
 import { getShopAdminToken, postAdminGraphql } from "./shopifyAdminApi";
 
-export async function activateShopifyWebPixel(
+export async function getShopifyWebPixelStatus(
   shopDomain: string
-): Promise<{ activated: boolean; reason?: string; pixelId?: string }> {
+): Promise<{ active: boolean; pixelId?: string; reason?: string }> {
   const accessToken = await getShopAdminToken(shopDomain);
   if (!accessToken) {
-    return { activated: false, reason: "Missing shop access token" };
+    return { active: false, reason: "Missing shop access token" };
   }
-
-  const settings = JSON.stringify({
-    endpoint: `${appBaseUrl()}/events/web-pixel`,
-    shopDomain
-  });
 
   const existing = await postAdminGraphql<{
     data?: {
@@ -30,9 +25,34 @@ export async function activateShopifyWebPixel(
         }
       }
     `
-  ).catch(() => ({ data: { webPixels: { nodes: [] } } }));
+  ).catch((error) => ({
+    data: { webPixels: { nodes: [] } },
+    error
+  }));
 
   const existingPixelId = existing.data?.webPixels?.nodes?.[0]?.id;
+  return {
+    active: Boolean(existingPixelId),
+    pixelId: existingPixelId,
+    reason: existingPixelId ? undefined : "No registered web pixel found"
+  };
+}
+
+export async function activateShopifyWebPixel(
+  shopDomain: string
+): Promise<{ activated: boolean; reason?: string; pixelId?: string }> {
+  const accessToken = await getShopAdminToken(shopDomain);
+  if (!accessToken) {
+    return { activated: false, reason: "Missing shop access token" };
+  }
+
+  const settings = JSON.stringify({
+    endpoint: `${appBaseUrl()}/events/web-pixel`,
+    shopDomain
+  });
+
+  const existingStatus = await getShopifyWebPixelStatus(shopDomain);
+  const existingPixelId = existingStatus.pixelId;
 
   if (existingPixelId) {
     const updateResponse = await postAdminGraphql<{
