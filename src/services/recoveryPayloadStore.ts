@@ -50,9 +50,22 @@ export function saveRecoveryPayload(payload: RecoveryPayload): RecoveryPayload {
   const db = readDb();
   const index = db.payloads.findIndex((entry) => keyMatches(entry, payload.checkoutToken, payload.shopDomain));
   if (index === -1) db.payloads.push(payload);
-  else db.payloads[index] = payload;
+  else {
+    const current = db.payloads[index];
+    db.payloads[index] = {
+      ...current,
+      ...payload,
+      checkoutUrl: payload.checkoutUrl || current.checkoutUrl,
+      cartUrl: payload.cartUrl || current.cartUrl,
+      lineItems: payload.lineItems.length > 0 ? payload.lineItems : current.lineItems,
+      currencyCode: payload.currencyCode || current.currencyCode,
+      paymentMethod: payload.paymentMethod || current.paymentMethod,
+      paymentFailureLabel: payload.paymentFailureLabel || current.paymentFailureLabel,
+      updatedAt: payload.updatedAt
+    };
+  }
   writeDb(db);
-  return payload;
+  return index === -1 ? payload : db.payloads[index];
 }
 
 export function getRecoveryPayload(checkoutToken: string, shopDomain: string): RecoveryPayload | undefined {

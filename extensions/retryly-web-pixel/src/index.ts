@@ -14,9 +14,26 @@ register(({ analytics, browser, settings }) => {
 
   if (!endpoint || !shopDomain) return;
 
-  async function forward(eventName: "payment_info_submitted" | "checkout_completed", event: unknown) {
+  function checkoutTokenFromLocation(): string | undefined {
+    const path = browser.location.pathname || "";
+    const match = path.match(/\/checkouts\/([^/?]+)/i);
+    return match?.[1];
+  }
+
+  function isPaymentStep(): boolean {
+    const search = browser.location.search || "";
+    const href = browser.location.href || "";
+    const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+    const step = params.get("step") || params.get("previous_step");
+    return step === "payment_method" || /payment_method|payment/i.test(href);
+  }
+
+  async function forward(eventName: "payment_info_submitted" | "checkout_completed" | "payment_page_viewed", event: unknown) {
     const checkout = (event as { data?: { checkout?: Record<string, unknown> } })?.data?.checkout || {};
     const lineItems = (checkout.lineItems as LineItem[] | undefined) || [];
+    const checkoutToken = (checkout.token as string) || checkoutTokenFromLocation() || "";
+
+    if (!checkoutToken) return;
 
     await fetch(endpoint, {
       method: "POST",
@@ -24,14 +41,18 @@ register(({ analytics, browser, settings }) => {
       body: JSON.stringify({
         eventName,
         payload: {
-          checkoutToken: (checkout.token as string) || "",
+          checkoutToken,
           shopDomain,
           email: (checkout.email as string) || undefined,
           phone: (checkout.phone as string) || undefined,
           amountSubtotal: Number(checkout.subtotalPrice?.amount || 0) || undefined,
           countryCode: (checkout.billingAddress?.countryCode as string) || undefined,
           paymentMethod: (checkout.transactions?.[0]?.gateway as string) || (checkout.paymentMethod?.type as string) || undefined,
-          paymentFailureLabel: eventName === "payment_info_submitted" ? "payment_info_submitted" : undefined,
+          paymentFailureLabel: eventName === "payment_info_submitted"
+            ? "payment_info_submitted"
+            : eventName === "payment_page_viewed"
+              ? "payment_page_reached"
+              : undefined,
           checkoutUrl: (checkout.webUrl as string) || undefined,
           cartUrl: (checkout.cart?.webUrl as string) || undefined,
           currencyCode: (checkout.currencyCode as string) || undefined,
@@ -52,6 +73,11 @@ register(({ analytics, browser, settings }) => {
 
   analytics.subscribe("payment_info_submitted", async (event) => {
     await forward("payment_info_submitted", event);
+  });
+
+  analytics.subscribe("page_viewed", async (event) => {
+    if (!isPaymentStep()) return;
+    await forward("payment_page_viewed", event);
   });
 
   analytics.subscribe("checkout_completed", async (event) => {

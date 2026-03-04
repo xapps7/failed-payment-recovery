@@ -97,7 +97,21 @@ export class InMemoryRecoveryStore implements RecoveryStore {
     const prisma = getPrisma();
     const key = this.sessionKey(input.checkoutToken, input.shopDomain);
     const existing = this.sessions.get(key);
-    if (existing) return existing;
+    if (existing) {
+      const merged: RecoverySession = {
+        ...existing,
+        campaignId: input.campaignId || existing.campaignId,
+        email: input.email || existing.email,
+        phone: input.phone || existing.phone,
+        amountSubtotal: input.amountSubtotal ?? existing.amountSubtotal,
+        countryCode: input.countryCode || existing.countryCode,
+        customerSegment: input.customerSegment || existing.customerSegment,
+        paymentMethod: input.paymentMethod || existing.paymentMethod,
+        failedAt: existing.failedAt || input.failedAt,
+        nextAttemptAt: existing.nextAttemptAt || input.nextAttemptAt || input.failedAt
+      };
+      return this.update(merged);
+    }
 
     const session: RecoverySession = {
       id: randomUUID(),

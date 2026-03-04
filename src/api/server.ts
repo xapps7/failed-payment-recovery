@@ -51,6 +51,12 @@ const runtime = new RecoveryRuntime(
   () => [15, 360, 1440],
   () => getCurrentCampaign()
 );
+const dueJobIntervalMs = Math.max(Number(env.DUE_JOB_INTERVAL_SECONDS || 60), 15) * 1000;
+setInterval(() => {
+  void runtime.runDue(new Date().toISOString()).catch((error) => {
+    console.error("Automatic due-job run failed", error);
+  });
+}, dueJobIntervalMs).unref();
 const issuedOAuthStates = new Map<string, number>();
 const TRACKING_PIXEL_GIF = Buffer.from(
   "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
@@ -82,7 +88,7 @@ const paymentInfoSchema = z.object({
 });
 
 const webPixelSchema = z.object({
-  eventName: z.enum(["payment_info_submitted", "checkout_completed"]),
+  eventName: z.enum(["payment_info_submitted", "checkout_completed", "payment_page_viewed"]),
   payload: paymentInfoSchema.extend({
     orderId: z.string().optional()
   })

@@ -17,6 +17,7 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
   TWILIO_FROM_NUMBER: z.string().min(1).optional(),
   RECOVERY_LINK_SECRET: z.string().min(16).optional(),
+  DUE_JOB_INTERVAL_SECONDS: z.string().optional(),
   PORT: z.string().optional()
 });
 
