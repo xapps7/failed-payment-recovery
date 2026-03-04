@@ -37,6 +37,8 @@ register(({ analytics, browser, settings }) => {
 
     await fetch(endpoint, {
       method: "POST",
+      mode: "no-cors",
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         eventName,
