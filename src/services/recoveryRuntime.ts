@@ -1,9 +1,10 @@
 import type { CheckoutSignal } from "../domain/types";
-import { inferLikelyFailedPayment } from "../domain/recoveryEngine";
 import type { Notifier } from "./notifier";
 import type { RecoveryStore } from "./recoveryStore";
 import { processRecoveryAttempt } from "../workers/recoveryWorker";
 import type { RecoveryCampaign } from "./campaignStore";
+
+const FAILURE_WINDOW_MS = 15 * 60 * 1000;
 
 export class RecoveryRuntime {
   constructor(
@@ -14,8 +15,8 @@ export class RecoveryRuntime {
   ) {}
 
   async ingestSignal(signal: CheckoutSignal, nowIso: string): Promise<void> {
-    const failed = inferLikelyFailedPayment(signal, nowIso);
-    if (!failed) return;
+    if (!signal.paymentInfoSubmittedAt) return;
+    if (signal.checkoutCompletedAt) return;
 
     const campaign = this.getActiveCampaign ? await Promise.resolve(this.getActiveCampaign()) : undefined;
     if (campaign) {
@@ -43,6 +44,11 @@ export class RecoveryRuntime {
       }
     }
 
+    const submittedAt = new Date(signal.paymentInfoSubmittedAt).getTime();
+    const nextAttemptAt = Number.isFinite(submittedAt)
+      ? new Date(submittedAt + FAILURE_WINDOW_MS).toISOString()
+      : nowIso;
+
     await this.store.upsertFailedSession({
       campaignId: campaign?.id,
       checkoutToken: signal.checkoutToken,
@@ -53,7 +59,8 @@ export class RecoveryRuntime {
       countryCode: signal.countryCode,
       customerSegment: signal.customerSegment,
       paymentMethod: signal.paymentMethod,
-      failedAt: nowIso
+      failedAt: signal.paymentInfoSubmittedAt,
+      nextAttemptAt
     });
   }
 

@@ -14,6 +14,7 @@ export interface CreateSessionInput {
   customerSegment?: "all" | "new" | "returning" | "vip";
   paymentMethod?: string;
   failedAt: string;
+  nextAttemptAt?: string;
 }
 
 export interface DeliveryAttemptInput {
@@ -112,7 +113,7 @@ export class InMemoryRecoveryStore implements RecoveryStore {
       state: "LIKELY_FAILED_PAYMENT",
       attemptCount: 0,
       failedAt: input.failedAt,
-      nextAttemptAt: input.failedAt
+      nextAttemptAt: input.nextAttemptAt || input.failedAt
     };
 
     if (prisma) {
@@ -133,7 +134,7 @@ export class InMemoryRecoveryStore implements RecoveryStore {
           paymentMethod: input.paymentMethod,
           campaignId: input.campaignId || null,
           failedAt: new Date(input.failedAt),
-          nextAttemptAt: new Date(input.failedAt),
+          nextAttemptAt: new Date(input.nextAttemptAt || input.failedAt),
           state: "LIKELY_FAILED_PAYMENT"
         },
         create: {
@@ -148,7 +149,7 @@ export class InMemoryRecoveryStore implements RecoveryStore {
           customerSegment: input.customerSegment,
           paymentMethod: input.paymentMethod,
           failedAt: new Date(input.failedAt),
-          nextAttemptAt: new Date(input.failedAt),
+          nextAttemptAt: new Date(input.nextAttemptAt || input.failedAt),
           state: "LIKELY_FAILED_PAYMENT"
         },
         include: { shop: true }
