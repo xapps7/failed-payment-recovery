@@ -616,11 +616,21 @@ app.post("/events/payment-info-submitted", async (req, res) => {
 });
 
 app.post("/events/web-pixel", async (req, res) => {
-  const parsed = webPixelSchema.safeParse(req.body);
+  const parsedBody = (() => {
+    if (typeof req.body === "string") {
+      try {
+        return JSON.parse(req.body);
+      } catch {
+        return req.body;
+      }
+    }
+    return req.body;
+  })();
+  const parsed = webPixelSchema.safeParse(parsedBody);
   if (!parsed.success) {
     recordPixelDebug({
       kind: "rejected",
-      payload: req.body,
+      payload: parsedBody,
       reason: JSON.stringify(parsed.error.flatten())
     });
     return res.status(400).json({ error: parsed.error.flatten() });

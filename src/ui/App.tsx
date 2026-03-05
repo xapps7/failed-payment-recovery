@@ -267,6 +267,14 @@ export function App() {
     void refresh();
   }, []);
 
+  useEffect(() => {
+    if (section !== "feed") return;
+    const timer = setInterval(() => {
+      void refresh();
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [section]);
+
   async function refresh() {
     const response = await fetch("/platform");
     const payload = (await response.json()) as PlatformPayload;
@@ -516,10 +524,13 @@ export function App() {
   }
 
   const sectionOrder: AppSection[] = ["overview", "campaigns", "feed", "settings"];
+  const unattendedFeedCount = data.sessions.filter(
+    (session) => session.state === "LIKELY_FAILED_PAYMENT" && !session.operatorAction?.lastAction
+  ).length;
   const tabs = [
     { id: "overview", content: "Overview" },
     { id: "campaigns", content: "Campaign Studio" },
-    { id: "feed", content: "Recovery Feed" },
+    { id: "feed", content: "Recovery Feed", badge: unattendedFeedCount > 0 ? String(unattendedFeedCount) : undefined },
     { id: "settings", content: "Settings" }
   ];
   const selectedTabIndex = sectionOrder.indexOf(section);
