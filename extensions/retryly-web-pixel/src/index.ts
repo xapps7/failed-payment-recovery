@@ -32,6 +32,13 @@ register(({ analytics, browser, settings }) => {
     const checkout = (event as { data?: { checkout?: Record<string, unknown> } })?.data?.checkout || {};
     const lineItems = (checkout.lineItems as LineItem[] | undefined) || [];
     const checkoutToken = (checkout.token as string) || checkoutTokenFromLocation() || "";
+    const phone =
+      (checkout.phone as string) ||
+      (checkout.billingAddress?.phone as string) ||
+      (checkout.shippingAddress?.phone as string) ||
+      (checkout.customer?.phone as string) ||
+      (checkout.contact?.phone as string) ||
+      undefined;
 
     if (!checkoutToken) return;
 
@@ -45,7 +52,7 @@ register(({ analytics, browser, settings }) => {
           checkoutToken,
           shopDomain,
           email: (checkout.email as string) || undefined,
-          phone: (checkout.phone as string) || undefined,
+          phone,
           amountSubtotal: Number(checkout.subtotalPrice?.amount || 0) || undefined,
           countryCode: (checkout.billingAddress?.countryCode as string) || undefined,
           paymentMethod: (checkout.transactions?.[0]?.gateway as string) || (checkout.paymentMethod?.type as string) || undefined,

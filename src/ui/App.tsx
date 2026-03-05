@@ -527,10 +527,13 @@ export function App() {
   const unattendedFeedCount = data.sessions.filter(
     (session) => session.state === "LIKELY_FAILED_PAYMENT" && !session.operatorAction?.lastAction
   ).length;
+  const feedTabLabel = unattendedFeedCount > 0
+    ? `Recovery Feed (${unattendedFeedCount})`
+    : "Recovery Feed";
   const tabs = [
     { id: "overview", content: "Overview" },
     { id: "campaigns", content: "Campaign Studio" },
-    { id: "feed", content: "Recovery Feed", badge: unattendedFeedCount > 0 ? String(unattendedFeedCount) : undefined },
+    { id: "feed", content: feedTabLabel },
     { id: "settings", content: "Settings" }
   ];
   const selectedTabIndex = sectionOrder.indexOf(section);
