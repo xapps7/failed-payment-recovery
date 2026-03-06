@@ -16,8 +16,23 @@ register(({ analytics, browser, settings }) => {
 
   function checkoutTokenFromLocation(): string | undefined {
     const path = browser.location.pathname || "";
-    const match = path.match(/\/checkouts\/([^/?]+)/i);
-    return match?.[1];
+    const checkoutContextMatch = path.match(/\/checkouts\/cn\/([^/?]+)/i);
+    if (checkoutContextMatch?.[1]) return decodeURIComponent(checkoutContextMatch[1]);
+    const legacyMatch = path.match(/\/checkouts\/([^/?]+)/i);
+    return legacyMatch?.[1] ? decodeURIComponent(legacyMatch[1]) : undefined;
+  }
+
+  function checkoutTokenFromEvent(checkout: Record<string, unknown>): string | undefined {
+    const direct = checkout.token as string | undefined;
+    if (direct && direct.trim()) return direct.trim();
+
+    const checkoutId = checkout.id as string | undefined;
+    if (checkoutId && checkoutId.includes("/")) {
+      const last = checkoutId.split("/").pop();
+      if (last && last.trim()) return last.trim();
+    }
+
+    return undefined;
   }
 
   function isPaymentStep(): boolean {
@@ -31,7 +46,7 @@ register(({ analytics, browser, settings }) => {
   async function forward(eventName: "payment_info_submitted" | "checkout_completed" | "payment_page_viewed", event: unknown) {
     const checkout = (event as { data?: { checkout?: Record<string, unknown> } })?.data?.checkout || {};
     const lineItems = (checkout.lineItems as LineItem[] | undefined) || [];
-    const checkoutToken = (checkout.token as string) || checkoutTokenFromLocation() || "";
+    const checkoutToken = checkoutTokenFromEvent(checkout) || checkoutTokenFromLocation() || "";
     const phone =
       (checkout.phone as string) ||
       (checkout.billingAddress?.phone as string) ||
