@@ -450,6 +450,40 @@ app.get("/auth/shops", async (_req, res) => {
   return res.status(200).json({ shops: await listShopTokens() });
 });
 
+async function resolveSessionToken(
+  checkoutToken: string,
+  shopDomain: string,
+  paymentInfoSubmittedAt?: string
+): Promise<string> {
+  const existing = await store.getByCheckoutToken(checkoutToken, shopDomain);
+  if (!existing) return checkoutToken;
+  if (!paymentInfoSubmittedAt) return checkoutToken;
+
+  const existingFailedAt = existing.failedAt ? new Date(existing.failedAt).getTime() : 0;
+  const incomingFailedAt = new Date(paymentInfoSubmittedAt).getTime();
+  if (!Number.isFinite(incomingFailedAt) || !Number.isFinite(existingFailedAt)) return checkoutToken;
+
+  // If checkout token is reused for a new payment attempt, keep historical rows instead of overwriting one session.
+  if (incomingFailedAt - existingFailedAt >= 60_000) {
+    return `${checkoutToken}-${Math.floor(incomingFailedAt / 1000)}`;
+  }
+  return checkoutToken;
+}
+
+async function resolveRecoveredToken(checkoutToken: string, shopDomain: string): Promise<string> {
+  const direct = await store.getByCheckoutToken(checkoutToken, shopDomain);
+  if (direct) return checkoutToken;
+
+  const recent = await runtime.recent(200);
+  const candidate = recent.find(
+    (session) =>
+      session.shopDomain === shopDomain &&
+      (session.checkoutToken === checkoutToken || session.checkoutToken.startsWith(`${checkoutToken}-`)) &&
+      session.state === "LIKELY_FAILED_PAYMENT"
+  );
+  return candidate?.checkoutToken || checkoutToken;
+}
+
 app.get("/track/open.gif", (req, res) => {
   const checkoutToken = typeof req.query.checkoutToken === "string" ? req.query.checkoutToken : "";
   const shopDomain = typeof req.query.shopDomain === "string" ? req.query.shopDomain : "";
@@ -599,11 +633,17 @@ app.post("/events/payment-info-submitted", async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
+  const sessionToken = await resolveSessionToken(
+    parsed.data.checkoutToken,
+    parsed.data.shopDomain,
+    parsed.data.paymentInfoSubmittedAt
+  );
+
   const normalizedCountryCode = normalizeCountryCode(parsed.data.countryCode, parsed.data.currencyCode);
   const normalizedPaymentMethod = normalizePaymentMethod(parsed.data.paymentMethod, parsed.data.paymentFailureLabel);
 
   saveRecoveryPayload({
-    checkoutToken: parsed.data.checkoutToken,
+    checkoutToken: sessionToken,
     shopDomain: parsed.data.shopDomain,
     checkoutUrl: parsed.data.checkoutUrl,
     cartUrl: parsed.data.cartUrl,
@@ -615,6 +655,7 @@ app.post("/events/payment-info-submitted", async (req, res) => {
   });
   await runtime.ingestSignal({
     ...parsed.data,
+    checkoutToken: sessionToken,
     countryCode: normalizedCountryCode,
     paymentMethod: normalizedPaymentMethod
   }, new Date().toISOString());
@@ -649,15 +690,22 @@ app.post("/events/web-pixel", async (req, res) => {
     payload
   });
   if (eventName === "checkout_completed" && payload.orderId) {
-    await runtime.markCheckoutRecovered(payload.checkoutToken, payload.orderId, payload.shopDomain);
+    const recoveredToken = await resolveRecoveredToken(payload.checkoutToken, payload.shopDomain);
+    await runtime.markCheckoutRecovered(recoveredToken, payload.orderId, payload.shopDomain);
     return res.status(202).json({ ok: true, handled: eventName });
   }
+
+  const sessionToken = await resolveSessionToken(
+    payload.checkoutToken,
+    payload.shopDomain,
+    payload.paymentInfoSubmittedAt
+  );
 
   const normalizedCountryCode = normalizeCountryCode(payload.countryCode, payload.currencyCode);
   const normalizedPaymentMethod = normalizePaymentMethod(payload.paymentMethod, payload.paymentFailureLabel);
 
   saveRecoveryPayload({
-    checkoutToken: payload.checkoutToken,
+    checkoutToken: sessionToken,
     shopDomain: payload.shopDomain,
     checkoutUrl: payload.checkoutUrl,
     cartUrl: payload.cartUrl,
@@ -669,6 +717,7 @@ app.post("/events/web-pixel", async (req, res) => {
   });
   await runtime.ingestSignal({
     ...payload,
+    checkoutToken: sessionToken,
     countryCode: normalizedCountryCode,
     paymentMethod: normalizedPaymentMethod
   }, new Date().toISOString());
