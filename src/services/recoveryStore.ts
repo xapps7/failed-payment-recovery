@@ -117,8 +117,12 @@ export class InMemoryRecoveryStore implements RecoveryStore {
         countryCode: input.countryCode || existing.countryCode,
         customerSegment: input.customerSegment || existing.customerSegment,
         paymentMethod: input.paymentMethod || existing.paymentMethod,
-        failedAt: existing.failedAt || input.failedAt,
-        nextAttemptAt: existing.nextAttemptAt || input.nextAttemptAt || input.failedAt
+        state: "LIKELY_FAILED_PAYMENT",
+        failedAt: input.failedAt,
+        lastAttemptAt: undefined,
+        nextAttemptAt: input.nextAttemptAt || input.failedAt,
+        recoveredOrderId: undefined,
+        attemptCount: 0
       };
       return this.update(merged);
     }

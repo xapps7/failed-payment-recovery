@@ -43,7 +43,15 @@ register(({ analytics, browser, settings }) => {
     return step === "payment_method" || /payment_method|payment/i.test(href);
   }
 
-  async function forward(eventName: "payment_info_submitted" | "checkout_completed" | "payment_page_viewed", event: unknown) {
+  async function forward(
+    eventName:
+      | "payment_info_submitted"
+      | "checkout_completed"
+      | "payment_page_viewed"
+      | "checkout_contact_info_submitted"
+      | "checkout_address_info_submitted",
+    event: unknown
+  ) {
     const checkout = (event as { data?: { checkout?: Record<string, unknown> } })?.data?.checkout || {};
     const lineItems = (checkout.lineItems as LineItem[] | undefined) || [];
     const checkoutToken = checkoutTokenFromEvent(checkout) || checkoutTokenFromLocation() || "";
@@ -75,6 +83,10 @@ register(({ analytics, browser, settings }) => {
             ? "payment_info_submitted"
             : eventName === "payment_page_viewed"
               ? "payment_page_reached"
+              : eventName === "checkout_contact_info_submitted"
+                ? "contact_info_submitted"
+                : eventName === "checkout_address_info_submitted"
+                  ? "address_info_submitted"
               : undefined,
           checkoutUrl: (checkout.webUrl as string) || undefined,
           cartUrl: (checkout.cart?.webUrl as string) || undefined,
@@ -101,6 +113,14 @@ register(({ analytics, browser, settings }) => {
   analytics.subscribe("page_viewed", async (event) => {
     if (!isPaymentStep()) return;
     await forward("payment_page_viewed", event);
+  });
+
+  analytics.subscribe("checkout_contact_info_submitted", async (event) => {
+    await forward("checkout_contact_info_submitted", event);
+  });
+
+  analytics.subscribe("checkout_address_info_submitted", async (event) => {
+    await forward("checkout_address_info_submitted", event);
   });
 
   analytics.subscribe("checkout_completed", async (event) => {

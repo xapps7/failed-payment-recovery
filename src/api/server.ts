@@ -102,7 +102,13 @@ const paymentInfoSchema = z.object({
 });
 
 const webPixelSchema = z.object({
-  eventName: z.enum(["payment_info_submitted", "checkout_completed", "payment_page_viewed"]),
+  eventName: z.enum([
+    "payment_info_submitted",
+    "checkout_completed",
+    "payment_page_viewed",
+    "checkout_contact_info_submitted",
+    "checkout_address_info_submitted"
+  ]),
   payload: paymentInfoSchema.extend({
     orderId: z.string().optional()
   })
